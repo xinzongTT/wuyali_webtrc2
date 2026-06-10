@@ -51,10 +51,14 @@ export class SignalingHub {
     if (role === "viewer") {
       this.broadcast(roomId, { type: "viewer-ready", roomId, peerId: id }, id, "broadcaster");
     } else {
+      const leftAt = this.lastBroadcasterLeftAt.get(roomId);
+      const isQuickReconnect = leftAt != null && now - leftAt <= this.offlineGraceMs;
       this.lastBroadcasterLeftAt.delete(roomId);
-      for (const existing of room.values()) {
-        if (existing.role === "viewer") {
-          socket.send(JSON.stringify({ type: "viewer-ready", roomId, peerId: existing.id }));
+      if (!isQuickReconnect) {
+        for (const existing of room.values()) {
+          if (existing.role === "viewer") {
+            socket.send(JSON.stringify({ type: "viewer-ready", roomId, peerId: existing.id }));
+          }
         }
       }
       this.broadcast(roomId, { type: "broadcaster-ready", roomId, peerId: id }, id, "viewer");

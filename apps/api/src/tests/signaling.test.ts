@@ -59,6 +59,20 @@ describe("SignalingHub", () => {
     )).toBe(true);
   });
 
+  it("does not force existing viewers to renegotiate when a broadcaster reconnects quickly", () => {
+    const hub = new SignalingHub({ offlineGraceMs: 30_000 });
+    const viewer = socketPair();
+    const firstBroadcaster = socketPair();
+    const secondBroadcaster = socketPair();
+
+    hub.join("room001", "viewer", viewer.socket, 1_000);
+    hub.join("room001", "broadcaster", firstBroadcaster.socket, 2_000);
+    hub.leave(firstBroadcaster.socket, 3_000);
+    hub.join("room001", "broadcaster", secondBroadcaster.socket, 4_000);
+
+    expect(secondBroadcaster.sent.some((message) => message.includes('"viewer-ready"'))).toBe(false);
+  });
+
   it("routes targeted offers and answers between peers", () => {
     const hub = new SignalingHub();
     const viewer = socketPair();

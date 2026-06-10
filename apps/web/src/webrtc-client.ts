@@ -157,6 +157,10 @@ export class LiveClient {
     }
 
     if (this.role === "viewer" && message.type === "offer") {
+      if (this.shouldKeepHealthyViewerPeer(message.peerId)) {
+        this.send({ type: "viewer-ready", roomId: this.roomId, targetPeerId: message.peerId, reason: "healthy-peer-kept" });
+        return;
+      }
       await this.answerOffer(message.peerId, message.sdp);
       return;
     }
@@ -329,6 +333,16 @@ export class LiveClient {
     if (this.mediaFailureCount < 3) return;
     if (Date.now() - this.lastViewerReannounceAt < 15000) return;
     this.reannounceViewer("media-watchdog");
+  }
+
+  private shouldKeepHealthyViewerPeer(peerId: string | undefined) {
+    if (this.role !== "viewer" || !peerId || !this.peers.has(peerId)) return false;
+    const video = this.remoteVideo;
+    if (!video) return false;
+    return video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+      video.videoWidth > 0 &&
+      video.videoHeight > 0 &&
+      video.currentTime > 0;
   }
 
   private reannounceViewer(reason: string) {
