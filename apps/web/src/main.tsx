@@ -270,6 +270,7 @@ function ViewerPage({ roomId }: { roomId: string }) {
   const [status, setStatus] = useState<ClientStatus>({ connection: "等待直播" });
   const [fit, setFit] = useState<"contain" | "cover">("contain");
   const statsUploadRef = useRef(0);
+  const showDebug = new URLSearchParams(window.location.search).get("debug") === "1";
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -297,7 +298,7 @@ function ViewerPage({ roomId }: { roomId: string }) {
   return (
     <main className="viewer-page">
       <video ref={videoRef} className={fit} playsInline autoPlay controls />
-      <div className="viewer-status">
+      <div className="viewer-status" data-visible={showDebug}>
         <span className="badge inverse">{status.connection}</span>
         <span className="badge">{status.resolution || "等待分辨率"}</span>
         <span className="badge">{formatBitrate(status.bitrateBps)}</span>
@@ -369,61 +370,116 @@ function AdminPage() {
 
   useEffect(() => { void load(); }, []);
 
+  const liveUsers = users.filter((user) => user.presence.status === "live").length;
+  const totalViewers = users.reduce((sum, user) => sum + user.presence.viewers, 0);
+  const turnReady = Boolean(settings?.turnUrls.trim());
+
   return (
     <Shell title="管理员后台" subtitle="账号、直播状态、TURN 和诊断">
-      <section className="admin-grid">
-        <form className="card" onSubmit={createUser}>
-          <h2><Plus size={18} />创建用户</h2>
-          <label>直播间 ID<input value={roomId} onChange={(e) => setRoomId(e.target.value.toLowerCase())} /></label>
-          <label>显示名称<input value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label>
-          <label>密码<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-          {error && <p className="error">{error}</p>}
-          <button className="primary" type="submit"><Plus size={16} />创建</button>
-        </form>
-
-        <div className="card span-2">
-          <h2><Users size={18} />用户列表</h2>
-          <div className="table">
-            {users.map((user) => (
-              <button key={user.id} className="table-row" onClick={() => openDiagnostics(user.roomId)}>
-                <span>{user.displayName}</span>
-                <span className="mono">{user.roomId}</span>
-                <span className={`badge ${user.presence.status === "live" ? "inverse" : ""}`}>{statusLabel(user.presence.status)}</span>
-                <span>{user.presence.viewers} 接收端</span>
-              </button>
-            ))}
+      <section className="admin-console">
+        <div className="admin-summary">
+          <div>
+            <span className="metric-label">用户</span>
+            <strong>{users.length}</strong>
+          </div>
+          <div>
+            <span className="metric-label">直播中</span>
+            <strong>{liveUsers}</strong>
+          </div>
+          <div>
+            <span className="metric-label">接收端</span>
+            <strong>{totalViewers}</strong>
+          </div>
+          <div>
+            <span className="metric-label">TURN</span>
+            <strong>{turnReady ? "已配置" : "未配置"}</strong>
           </div>
         </div>
 
-        <div className="card span-2">
-          <h2><Settings size={18} />WebRTC 设置</h2>
-          {settings && (
-            <div className="settings-grid">
-              <label>STUN<input value={settings.stunUrls} onChange={(e) => setSettings({ ...settings, stunUrls: e.target.value })} /></label>
-              <label>TURN URLs<input value={settings.turnUrls} onChange={(e) => setSettings({ ...settings, turnUrls: e.target.value })} /></label>
-              <label>TURN 用户名<input value={settings.turnUsername} onChange={(e) => setSettings({ ...settings, turnUsername: e.target.value })} /></label>
-              <label>TURN 密码<input value={settings.turnCredential} onChange={(e) => setSettings({ ...settings, turnCredential: e.target.value })} /></label>
-              <label className="check"><input type="checkbox" checked={settings.forceRelay} onChange={(e) => setSettings({ ...settings, forceRelay: e.target.checked })} />强制 TURN 诊断</label>
-              <label className="check"><input type="checkbox" checked={settings.lowLatencyDefault} onChange={(e) => setSettings({ ...settings, lowLatencyDefault: e.target.checked })} />默认低延迟模式</label>
-              <button className="primary" onClick={saveSettings}><Settings size={16} />保存设置</button>
-            </div>
-          )}
-        </div>
-
-        <div className="card span-3">
-          <h2><Activity size={18} />诊断事件 {selectedRoom && <span className="mono">{selectedRoom}</span>}</h2>
-          <div className="events">
-            {events.length === 0 && <p className="muted">选择一个用户查看诊断事件。</p>}
-            {events.map((event) => (
-              <div className="event" key={event.id}>
-                <span className="badge">{event.type}</span>
-                <span>{event.role}</span>
-                <span>{event.detail}</span>
-                <span className="muted">{new Date(event.createdAt).toLocaleString()}</span>
+        <section className="admin-layout">
+          <aside className="admin-side">
+            <form className="card admin-card" onSubmit={createUser}>
+              <div className="section-title">
+                <h2><Plus size={17} />创建用户</h2>
+                <span>房间 ID 即 OBS 接收地址 ID</span>
               </div>
-            ))}
-          </div>
-        </div>
+              <label>直播间 ID<input value={roomId} onChange={(e) => setRoomId(e.target.value.toLowerCase())} placeholder="xiaoyu" /></label>
+              <label>显示名称<input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="可选" /></label>
+              <label>密码<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+              {error && <p className="error">{error}</p>}
+              <button className="primary" type="submit"><Plus size={16} />创建用户</button>
+            </form>
+
+            <div className="card admin-card">
+              <div className="section-title">
+                <h2><Settings size={17} />WebRTC 设置</h2>
+                <span>TURN 支持多个 URL，用逗号分隔</span>
+              </div>
+              {settings && (
+                <div className="settings-grid">
+                  <label>STUN<input value={settings.stunUrls} onChange={(e) => setSettings({ ...settings, stunUrls: e.target.value })} /></label>
+                  <label>TURN URLs<input value={settings.turnUrls} onChange={(e) => setSettings({ ...settings, turnUrls: e.target.value })} placeholder="turn:host:3478?transport=udp" /></label>
+                  <div className="two-fields">
+                    <label>TURN 用户名<input value={settings.turnUsername} onChange={(e) => setSettings({ ...settings, turnUsername: e.target.value })} /></label>
+                    <label>TURN 密码<input value={settings.turnCredential} onChange={(e) => setSettings({ ...settings, turnCredential: e.target.value })} /></label>
+                  </div>
+                  <div className="switch-row">
+                    <label className="check"><input type="checkbox" checked={settings.forceRelay} onChange={(e) => setSettings({ ...settings, forceRelay: e.target.checked })} />强制 TURN 诊断</label>
+                    <label className="check"><input type="checkbox" checked={settings.lowLatencyDefault} onChange={(e) => setSettings({ ...settings, lowLatencyDefault: e.target.checked })} />默认低延迟</label>
+                  </div>
+                  <button className="primary" onClick={saveSettings}><Settings size={16} />保存设置</button>
+                </div>
+              )}
+            </div>
+          </aside>
+
+          <main className="admin-main">
+            <div className="card admin-card">
+              <div className="section-title horizontal">
+                <h2><Users size={17} />用户列表</h2>
+                <span>点击用户查看最近诊断</span>
+              </div>
+              <div className="table admin-table">
+                <div className="table-head">
+                  <span>名称</span>
+                  <span>房间 ID</span>
+                  <span>状态</span>
+                  <span>接收端</span>
+                </div>
+                {users.map((user) => (
+                  <button
+                    key={user.id}
+                    className={`table-row ${selectedRoom === user.roomId ? "selected" : ""}`}
+                    onClick={() => openDiagnostics(user.roomId)}
+                  >
+                    <span>{user.displayName}</span>
+                    <span className="mono">{user.roomId}</span>
+                    <span className={`badge ${user.presence.status === "live" ? "inverse" : ""}`}>{statusLabel(user.presence.status)}</span>
+                    <span>{user.presence.viewers}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="card admin-card diagnostics-card">
+              <div className="section-title horizontal">
+                <h2><Activity size={17} />诊断事件</h2>
+                <span className="mono">{selectedRoom || "选择用户查看"}</span>
+              </div>
+              <div className="events">
+                {events.length === 0 && <p className="muted empty-state">暂无诊断事件。</p>}
+                {events.map((event) => (
+                  <div className="event" key={event.id}>
+                    <span className="badge">{event.type}</span>
+                    <span className="event-role">{event.role}</span>
+                    <span>{event.detail || "-"}</span>
+                    <span className="muted">{new Date(event.createdAt).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </main>
+        </section>
       </section>
     </Shell>
   );

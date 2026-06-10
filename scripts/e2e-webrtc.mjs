@@ -80,7 +80,7 @@ async function main() {
 
   try {
     await viewer.goto(`${baseUrl}/view/${roomId}`, { waitUntil: "domcontentloaded" });
-    await viewer.waitForSelector(".viewer-status", { timeout: 10_000 });
+    await viewer.waitForSelector(".viewer-status", { state: "attached", timeout: 10_000 });
 
     await live.goto(baseUrl, { waitUntil: "domcontentloaded" });
     await live.locator('input[placeholder="xiaoyu"]').fill(roomId);
