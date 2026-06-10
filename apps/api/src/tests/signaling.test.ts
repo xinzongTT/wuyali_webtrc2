@@ -73,6 +73,27 @@ describe("SignalingHub", () => {
     expect(secondBroadcaster.sent.some((message) => message.includes('"viewer-ready"'))).toBe(false);
   });
 
+  it("does not notify broadcasters when a viewer rejoins with healthy media", async () => {
+    const hub = new SignalingHub();
+    const broadcaster = socketPair();
+    const viewer = socketPair();
+    const viewerReconnect = socketPair();
+
+    hub.join("room001", "broadcaster", broadcaster.socket);
+    hub.join("room001", "viewer", viewer.socket);
+    const viewerReadyCountAfterInitialViewer = broadcaster.sent.filter((message) => message.includes('"viewer-ready"')).length;
+    hub.leave(viewer.socket);
+
+    await hub.route(viewerReconnect.socket, {
+      type: "join",
+      roomId: "room001",
+      role: "viewer",
+      recoverHealthyPeer: true
+    });
+
+    expect(broadcaster.sent.filter((message) => message.includes('"viewer-ready"'))).toHaveLength(viewerReadyCountAfterInitialViewer);
+  });
+
   it("routes targeted offers and answers between peers", () => {
     const hub = new SignalingHub();
     const viewer = socketPair();

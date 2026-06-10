@@ -116,7 +116,13 @@ export class LiveClient {
 
     socket.onopen = () => {
       this.setStatus({ connection: "信令已连接", recovery: undefined });
-      this.send({ type: "join", roomId: this.roomId, role: this.role, token: this.token });
+      this.send({
+        type: "join",
+        roomId: this.roomId,
+        role: this.role,
+        token: this.token,
+        recoverHealthyPeer: this.role === "viewer" && this.hasHealthyViewerMedia()
+      });
       this.startHeartbeat();
     };
 
@@ -337,6 +343,10 @@ export class LiveClient {
 
   private shouldKeepHealthyViewerPeer(peerId: string | undefined) {
     if (this.role !== "viewer" || !peerId || !this.peers.has(peerId)) return false;
+    return this.hasHealthyViewerMedia();
+  }
+
+  private hasHealthyViewerMedia() {
     const video = this.remoteVideo;
     if (!video) return false;
     return video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&

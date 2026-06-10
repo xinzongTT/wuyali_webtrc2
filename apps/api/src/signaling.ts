@@ -6,7 +6,7 @@ export type SignalSocket = {
 };
 
 export type SignalMessage =
-  | { type: "join"; roomId: string; role: SignalPeerRole; token?: string }
+  | { type: "join"; roomId: string; role: SignalPeerRole; token?: string; recoverHealthyPeer?: boolean }
   | { type: "viewer-ready"; roomId: string; targetPeerId?: string; peerId?: string }
   | { type: "broadcaster-ready"; roomId: string; targetPeerId?: string; peerId?: string }
   | { type: "offer"; roomId: string; targetPeerId?: string; peerId?: string; sdp: unknown }
@@ -38,7 +38,7 @@ export class SignalingHub {
     this.authorizeBroadcaster = options.authorizeBroadcaster;
   }
 
-  join(roomId: string, role: SignalPeerRole, socket: SignalSocket, now = Date.now()) {
+  join(roomId: string, role: SignalPeerRole, socket: SignalSocket, now = Date.now(), options: { recoverHealthyPeer?: boolean } = {}) {
     const id = `${role}-${this.nextId++}`;
     const peer: Peer = { id, roomId, role, socket, joinedAt: now };
     const room = this.rooms.get(roomId) ?? new Map<string, Peer>();
@@ -49,7 +49,9 @@ export class SignalingHub {
     socket.send(JSON.stringify({ type: "joined", roomId, role, peerId: id, presence: this.roomPresence(roomId, now) }));
 
     if (role === "viewer") {
-      this.broadcast(roomId, { type: "viewer-ready", roomId, peerId: id }, id, "broadcaster");
+      if (!options.recoverHealthyPeer) {
+        this.broadcast(roomId, { type: "viewer-ready", roomId, peerId: id }, id, "broadcaster");
+      }
     } else {
       const leftAt = this.lastBroadcasterLeftAt.get(roomId);
       const isQuickReconnect = leftAt != null && now - leftAt <= this.offlineGraceMs;
@@ -76,7 +78,9 @@ export class SignalingHub {
           return;
         }
       }
-      this.join(message.roomId, message.role, sender);
+      this.join(message.roomId, message.role, sender, Date.now(), {
+        recoverHealthyPeer: message.role === "viewer" && message.recoverHealthyPeer
+      });
       return;
     }
 

@@ -390,6 +390,45 @@ describe("LiveClient", () => {
     expect(remoteVideo.load).not.toHaveBeenCalled();
   });
 
+  it("marks a viewer signaling reconnect as healthy when media is still playing", async () => {
+    const remoteVideo = fakeRemoteVideo({
+      readyState: HTMLMediaElement.HAVE_ENOUGH_DATA,
+      videoWidth: 1080,
+      videoHeight: 1920,
+      currentTime: 12
+    });
+    const client = new LiveClient({
+      role: "viewer",
+      roomId: "room001",
+      remoteVideo: remoteVideo as unknown as HTMLVideoElement,
+      onStatus: vi.fn()
+    });
+
+    client.start();
+    FakeWebSocket.instances[0].onopen?.();
+    FakeWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "offer", roomId: "room001", peerId: "broadcaster-1", sdp: { type: "offer", sdp: "v=0" } })
+    });
+    await flushPromises();
+
+    const firstPeer = FakePeerConnection.instances[0];
+    firstPeer.ontrack?.({ streams: [{} as MediaStream] });
+    remoteVideo.currentTime = 18;
+    FakeWebSocket.instances[0].onclose?.();
+    await vi.advanceTimersByTimeAsync(1500);
+    FakeWebSocket.instances[1].onopen?.();
+
+    const reconnectJoin = JSON.parse(FakeWebSocket.instances[1].sent[0]);
+    expect(reconnectJoin).toMatchObject({
+      type: "join",
+      roomId: "room001",
+      role: "viewer",
+      recoverHealthyPeer: true
+    });
+    expect(firstPeer.closed).toBe(false);
+    expect(remoteVideo.load).not.toHaveBeenCalled();
+  });
+
   it("reports viewer media recovery after a watchdog rebuild gets a new track", async () => {
     const recoveryEvents: any[] = [];
     const remoteVideo = fakeRemoteVideo({
