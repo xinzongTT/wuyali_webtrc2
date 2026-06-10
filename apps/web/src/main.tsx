@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Activity, Camera, LogOut, Mic, Monitor, Play, Plus, Radio, Settings, Shield, Square, Users } from "lucide-react";
+import { Activity, AlertTriangle, Camera, LogOut, Mic, Monitor, Play, Plus, Radio, Settings, Shield, Square, Users } from "lucide-react";
 import {
   apiJson,
   fetchClientSettings,
@@ -12,7 +12,7 @@ import {
   type AdminUser,
   type User
 } from "./api";
-import { LiveClient, type ClientStatus } from "./webrtc-client";
+import { LiveClient, type ClientStatus, type RecoveryEvent } from "./webrtc-client";
 import {
   audioLevelToMeterPercent,
   buildAudioConstraints,
@@ -44,6 +44,7 @@ type DiagnosticEvent = {
   type: string;
   role: string;
   detail: string;
+  stats?: unknown;
   createdAt: string;
 };
 
@@ -165,6 +166,14 @@ function LivePage() {
           detail: buildStatsDetail(nextStatus),
           stats: buildStatsPayload(nextStatus)
         }).catch(() => {});
+      },
+      onRecoveryEvent: (event) => {
+        void postRecoveryEvent({
+          roomId: user.roomId,
+          token: getToken("userToken"),
+          role: "broadcaster",
+          event
+        });
       }
     });
     current.start();
@@ -289,6 +298,13 @@ function ViewerPage({ roomId }: { roomId: string }) {
           detail: buildStatsDetail(nextStatus),
           stats: buildStatsPayload(nextStatus)
         }).catch(() => {});
+      },
+      onRecoveryEvent: (event) => {
+        void postRecoveryEvent({
+          roomId,
+          role: "viewer",
+          event
+        });
       }
     });
     current.start();
@@ -373,6 +389,7 @@ function AdminPage() {
   const liveUsers = users.filter((user) => user.presence.status === "live").length;
   const totalViewers = users.reduce((sum, user) => sum + user.presence.viewers, 0);
   const turnReady = Boolean(settings?.turnUrls.trim());
+  const outageEvents = events.filter(isOutageEvent);
 
   return (
     <Shell title="管理员后台" subtitle="账号、直播状态、TURN 和诊断">
@@ -461,6 +478,33 @@ function AdminPage() {
               </div>
             </div>
 
+            <div className="card admin-card outage-card">
+              <div className="section-title horizontal">
+                <h2><AlertTriangle size={17} />断流日志</h2>
+                <span className="mono">{selectedRoom || "选择用户查看"}</span>
+              </div>
+              <div className="outage-events">
+                <div className="outage-head">
+                  <span>时间</span>
+                  <span>端</span>
+                  <span>事件</span>
+                  <span>关键数据</span>
+                </div>
+                {outageEvents.length === 0 && <p className="muted empty-state">暂无断流记录。</p>}
+                {outageEvents.map((event) => (
+                  <div className="outage-row" key={event.id}>
+                    <span className="muted">{formatEventTime(event.createdAt)}</span>
+                    <span className={`badge ${event.role === "broadcaster" ? "inverse" : ""}`}>{roleLabel(event.role)}</span>
+                    <span className="outage-detail">
+                      <strong>{outageLabel(event.type)}</strong>
+                      <small>{outageSummary(event)}</small>
+                    </span>
+                    <span className="muted">{formatOutageMetrics(event)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="card admin-card diagnostics-card">
               <div className="section-title horizontal">
                 <h2><Activity size={17} />诊断事件</h2>
@@ -537,6 +581,91 @@ function buildStatsPayload(status: ClientStatus) {
     jitterMs: status.jitterMs ?? null,
     availableOutgoingKbps: status.availableOutgoingKbps ?? null
   };
+}
+
+function postRecoveryEvent(input: {
+  roomId: string;
+  token?: string;
+  role: "broadcaster" | "viewer";
+  event: RecoveryEvent;
+}) {
+  return postRoomEvent({
+    roomId: input.roomId,
+    token: input.token,
+    type: input.event.type,
+    role: input.role,
+    detail: input.event.detail,
+    stats: input.event.stats
+  }).catch(() => {});
+}
+
+const outageEventTypes = new Set([
+  "stream_interrupted",
+  "viewer_reconnect_requested",
+  "viewer_media_lost",
+  "viewer_media_recovered"
+]);
+
+function isOutageEvent(event: DiagnosticEvent) {
+  return outageEventTypes.has(event.type);
+}
+
+function outageLabel(type: string) {
+  if (type === "stream_interrupted") return "推流连接异常";
+  if (type === "viewer_reconnect_requested") return "接收端重连";
+  if (type === "viewer_media_lost") return "接收端无画面";
+  if (type === "viewer_media_recovered") return "接收端恢复";
+  return type;
+}
+
+function outageSummary(event: DiagnosticEvent) {
+  if (event.detail && !event.detail.includes("???")) return event.detail;
+  const stats = asStats(event.stats);
+  if (typeof stats.reason === "string") return reasonLabel(stats.reason);
+  return outageLabel(event.type);
+}
+
+function roleLabel(role: string) {
+  if (role === "broadcaster") return "推流";
+  if (role === "viewer") return "接收";
+  return role;
+}
+
+function formatEventTime(value: string) {
+  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function formatOutageMetrics(event: DiagnosticEvent) {
+  const stats = asStats(event.stats);
+  const parts: string[] = [];
+  const resolution = typeof stats.resolution === "string" ? stats.resolution : videoResolutionFromStats(stats);
+  if (resolution) parts.push(resolution);
+  if (typeof stats.fps === "number") parts.push(`${Math.round(stats.fps)}fps`);
+  if (typeof stats.bitrateBps === "number" && stats.bitrateBps > 0) parts.push(formatBitrate(stats.bitrateBps));
+  if (typeof stats.rttMs === "number") parts.push(`RTT ${Math.round(stats.rttMs)}ms`);
+  if (typeof stats.jitterMs === "number") parts.push(`抖动 ${Math.round(stats.jitterMs)}ms`);
+  if (typeof stats.connection === "string") parts.push(stats.connection);
+  if (typeof stats.reason === "string") parts.push(reasonLabel(stats.reason));
+  if (typeof stats.recoveredAfterMs === "number") parts.push(`${(stats.recoveredAfterMs / 1000).toFixed(1)}s恢复`);
+  return parts.join(" · ") || event.detail || "-";
+}
+
+function asStats(stats: unknown) {
+  return stats && typeof stats === "object" ? stats as Record<string, unknown> : {};
+}
+
+function videoResolutionFromStats(stats: Record<string, unknown>) {
+  if (typeof stats.videoWidth === "number" && typeof stats.videoHeight === "number" && stats.videoWidth > 0 && stats.videoHeight > 0) {
+    return `${stats.videoWidth}x${stats.videoHeight}`;
+  }
+  return "";
+}
+
+function reasonLabel(reason: string) {
+  if (reason === "media-watchdog") return "画面检测";
+  if (reason === "peer-unhealthy") return "连接异常";
+  if (reason === "rebuild-timeout") return "重建超时";
+  return reason;
 }
 
 function startAudioMeter(stream: MediaStream, onLevel: (level: number) => void) {

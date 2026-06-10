@@ -148,11 +148,13 @@ describe("LiveClient", () => {
   });
 
   it("rebuilds a broadcaster peer and sends a fresh offer when recovery times out", async () => {
+    const recoveryEvents: any[] = [];
     const client = new LiveClient({
       role: "broadcaster",
       roomId: "room001",
       localStream: fakeStream(),
-      onStatus: vi.fn()
+      onStatus: vi.fn(),
+      onRecoveryEvent: (event) => recoveryEvents.push(event)
     });
 
     client.start();
@@ -167,6 +169,15 @@ describe("LiveClient", () => {
     await flushPromises();
 
     expect(firstPeer.restartIceCalls).toBe(1);
+    expect(recoveryEvents.at(-1)).toMatchObject({
+      type: "stream_interrupted",
+      detail: "推流连接异常，正在恢复直播",
+      stats: {
+        peerId: "viewer-1",
+        reason: "peer-unhealthy",
+        connection: "disconnected"
+      }
+    });
     expect(FakeWebSocket.instances[0].sent.filter((message) => message.includes('"type":"offer"'))).toHaveLength(2);
     vi.advanceTimersByTime(5500);
     await flushPromises();
@@ -299,6 +310,7 @@ describe("LiveClient", () => {
   });
 
   it("re-announces a viewer when the video element has no playable frames", async () => {
+    const recoveryEvents: any[] = [];
     const remoteVideo = fakeRemoteVideo({
       readyState: 0,
       videoWidth: 0,
@@ -310,7 +322,8 @@ describe("LiveClient", () => {
       role: "viewer",
       roomId: "room001",
       remoteVideo: remoteVideo as unknown as HTMLVideoElement,
-      onStatus: (status) => statuses.push(status)
+      onStatus: (status) => statuses.push(status),
+      onRecoveryEvent: (event) => recoveryEvents.push(event)
     });
 
     client.start();
@@ -327,6 +340,63 @@ describe("LiveClient", () => {
     expect(FakeWebSocket.instances[0].sent.some((message) => message.includes('"type":"viewer-ready"'))).toBe(true);
     expect(statuses.at(-1)).toMatchObject({
       recovery: "正在重建接收端"
+    });
+    expect(recoveryEvents.at(-1)).toMatchObject({
+      type: "viewer_media_lost",
+      detail: "接收端无可播放画面，已请求重新拉流",
+      stats: {
+        reason: "media-watchdog",
+        readyState: 0,
+        videoWidth: 0,
+        videoHeight: 0,
+        currentTime: 0
+      }
+    });
+  });
+
+  it("reports viewer media recovery after a watchdog rebuild gets a new track", async () => {
+    const recoveryEvents: any[] = [];
+    const remoteVideo = fakeRemoteVideo({
+      readyState: 0,
+      videoWidth: 0,
+      videoHeight: 0,
+      currentTime: 0
+    });
+    const client = new LiveClient({
+      role: "viewer",
+      roomId: "room001",
+      remoteVideo: remoteVideo as unknown as HTMLVideoElement,
+      onStatus: vi.fn(),
+      onRecoveryEvent: (event) => recoveryEvents.push(event)
+    });
+
+    client.start();
+    FakeWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "offer", roomId: "room001", peerId: "broadcaster-1", sdp: { type: "offer", sdp: "v=0" } })
+    });
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flushPromises();
+
+    FakeWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "offer", roomId: "room001", peerId: "broadcaster-2", sdp: { type: "offer", sdp: "v=0" } })
+    });
+    await flushPromises();
+    remoteVideo.readyState = HTMLMediaElement.HAVE_ENOUGH_DATA;
+    remoteVideo.videoWidth = 1080;
+    remoteVideo.videoHeight = 1920;
+    remoteVideo.currentTime = 0.5;
+    FakePeerConnection.instances.at(-1)?.ontrack?.({ streams: [{} as MediaStream] });
+    await flushPromises();
+
+    expect(recoveryEvents.at(-1)).toMatchObject({
+      type: "viewer_media_recovered",
+      detail: "接收端画面已恢复",
+      stats: {
+        peerId: "broadcaster-2",
+        videoWidth: 1080,
+        videoHeight: 1920
+      }
     });
   });
 

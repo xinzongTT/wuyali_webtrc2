@@ -10,6 +10,7 @@ import {
 
 type Role = "broadcaster" | "viewer";
 type StatusCallback = (status: ClientStatus) => void;
+type RecoveryEventCallback = (event: RecoveryEvent) => void;
 
 export type ClientStatus = {
   connection: string;
@@ -26,6 +27,12 @@ export type ClientStatus = {
   recovery?: string;
 };
 
+export type RecoveryEvent = {
+  type: "stream_interrupted" | "viewer_reconnect_requested" | "viewer_media_lost" | "viewer_media_recovered";
+  detail: string;
+  stats: Record<string, unknown>;
+};
+
 export class LiveClient {
   private role: Role;
   private roomId: string;
@@ -40,6 +47,7 @@ export class LiveClient {
   private status: ClientStatus = { connection: "等待" };
   private onStatus: StatusCallback;
   private onStats?: StatusCallback;
+  private onRecoveryEvent?: RecoveryEventCallback;
   private reconnectTimer?: number;
   private statsTimer?: number;
   private heartbeatTimer?: number;
@@ -47,6 +55,7 @@ export class LiveClient {
   private mediaFailureCount = 0;
   private lastVideoTime = 0;
   private lastViewerReannounceAt = 0;
+  private lastViewerMediaLostAt = 0;
   private forceRelay = false;
   private latencyMode: LatencyMode = "quality";
   private stopped = false;
@@ -61,6 +70,7 @@ export class LiveClient {
     latencyMode?: LatencyMode;
     onStatus: StatusCallback;
     onStats?: StatusCallback;
+    onRecoveryEvent?: RecoveryEventCallback;
   }) {
     this.role = input.role;
     this.roomId = input.roomId;
@@ -71,6 +81,7 @@ export class LiveClient {
     this.latencyMode = input.latencyMode ?? "quality";
     this.onStatus = input.onStatus;
     this.onStats = input.onStats;
+    this.onRecoveryEvent = input.onRecoveryEvent;
   }
 
   start() {
@@ -199,6 +210,18 @@ export class LiveClient {
           void this.remoteVideo.play().catch(() => {});
           this.mediaFailureCount = 0;
           this.lastVideoTime = 0;
+          if (this.lastViewerMediaLostAt > 0) {
+            this.emitRecoveryEvent({
+              type: "viewer_media_recovered",
+              detail: "接收端画面已恢复",
+              stats: {
+                peerId,
+                recoveredAfterMs: Date.now() - this.lastViewerMediaLostAt,
+                ...this.remoteVideoStats()
+              }
+            });
+            this.lastViewerMediaLostAt = 0;
+          }
         }
       };
     } else if (this.localStream) {
@@ -235,6 +258,27 @@ export class LiveClient {
 
   private recoverPeer(peerId: string, pc: RTCPeerConnection) {
     this.setStatus({ recovery: "正在恢复直播" });
+    if (this.role === "broadcaster") {
+      this.emitRecoveryEvent({
+        type: "stream_interrupted",
+        detail: "推流连接异常，正在恢复直播",
+        stats: {
+          peerId,
+          reason: "peer-unhealthy",
+          connection: pc.connectionState
+        }
+      });
+    } else {
+      this.emitRecoveryEvent({
+        type: "viewer_reconnect_requested",
+        detail: "接收端连接异常，已请求重新协商",
+        stats: {
+          peerId,
+          reason: "peer-unhealthy",
+          connection: pc.connectionState
+        }
+      });
+    }
     if (typeof pc.restartIce === "function") pc.restartIce();
     if (this.role === "viewer") {
       this.send({ type: "restart-request", roomId: this.roomId, targetPeerId: peerId, reason: "peer-unhealthy" });
@@ -289,7 +333,9 @@ export class LiveClient {
 
   private reannounceViewer(reason: string) {
     if (this.role !== "viewer") return;
+    const videoStats = this.remoteVideoStats();
     this.lastViewerReannounceAt = Date.now();
+    this.lastViewerMediaLostAt = this.lastViewerReannounceAt;
     this.mediaFailureCount = 0;
     this.lastVideoTime = 0;
 
@@ -312,6 +358,14 @@ export class LiveClient {
       bitrateBps: 0,
       fps: undefined,
       resolution: undefined
+    });
+    this.emitRecoveryEvent({
+      type: "viewer_media_lost",
+      detail: "接收端无可播放画面，已请求重新拉流",
+      stats: {
+        reason,
+        ...videoStats
+      }
     });
     this.send({ type: "viewer-ready", roomId: this.roomId, reason });
   }
@@ -414,6 +468,20 @@ export class LiveClient {
     this.status = { ...this.status, ...partial };
     this.onStatus(this.status);
     return this.status;
+  }
+
+  private emitRecoveryEvent(event: RecoveryEvent) {
+    this.onRecoveryEvent?.(event);
+  }
+
+  private remoteVideoStats() {
+    const video = this.remoteVideo;
+    return {
+      currentTime: video?.currentTime ?? 0,
+      readyState: video?.readyState ?? 0,
+      videoWidth: video?.videoWidth ?? 0,
+      videoHeight: video?.videoHeight ?? 0
+    };
   }
 }
 
