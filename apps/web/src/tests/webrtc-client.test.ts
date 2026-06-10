@@ -31,9 +31,11 @@ class FakePeerConnection {
   onconnectionstatechange: (() => void) | null = null;
   ontrack: ((event: { streams: MediaStream[] }) => void) | null = null;
   localDescription: RTCSessionDescriptionInit | null = null;
+  signalingState: RTCSignalingState = "stable";
   closed = false;
   restartIceCalls = 0;
   stats = new Map<string, any>();
+  remoteDescriptionCalls = 0;
 
   constructor(_config: RTCConfiguration) {
     FakePeerConnection.instances.push(this);
@@ -49,9 +51,17 @@ class FakePeerConnection {
 
   async setLocalDescription(description: RTCSessionDescriptionInit) {
     this.localDescription = description;
+    if (description.type === "offer") this.signalingState = "have-local-offer";
+    if (description.type === "answer") this.signalingState = "stable";
   }
 
-  async setRemoteDescription(_description: RTCSessionDescriptionInit) {}
+  async setRemoteDescription(description: RTCSessionDescriptionInit) {
+    this.remoteDescriptionCalls += 1;
+    if (description.type === "answer" && this.signalingState !== "have-local-offer") {
+      throw new Error(`wrong state: ${this.signalingState}`);
+    }
+    this.signalingState = "stable";
+  }
   async addIceCandidate(_candidate: unknown) {}
   addTrack(_track: MediaStreamTrack, _stream: MediaStream) {
     return { getParameters: () => ({}), setParameters: vi.fn() } as unknown as RTCRtpSender;
@@ -287,6 +297,62 @@ describe("LiveClient", () => {
       rttMs: 21
     });
   });
+
+  it("re-announces a viewer when the video element has no playable frames", async () => {
+    const remoteVideo = fakeRemoteVideo({
+      readyState: 0,
+      videoWidth: 0,
+      videoHeight: 0,
+      currentTime: 0
+    });
+    const statuses: any[] = [];
+    const client = new LiveClient({
+      role: "viewer",
+      roomId: "room001",
+      remoteVideo: remoteVideo as unknown as HTMLVideoElement,
+      onStatus: (status) => statuses.push(status)
+    });
+
+    client.start();
+    FakeWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "offer", roomId: "room001", peerId: "broadcaster-1", sdp: { type: "offer", sdp: "v=0" } })
+    });
+    await flushPromises();
+
+    const firstPeer = FakePeerConnection.instances[0];
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flushPromises();
+
+    expect(firstPeer.closed).toBe(true);
+    expect(FakeWebSocket.instances[0].sent.some((message) => message.includes('"type":"viewer-ready"'))).toBe(true);
+    expect(statuses.at(-1)).toMatchObject({
+      recovery: "正在重建接收端"
+    });
+  });
+
+  it("ignores a stale answer that arrives after the broadcaster peer is already stable", async () => {
+    const client = new LiveClient({
+      role: "broadcaster",
+      roomId: "room001",
+      localStream: fakeStream(),
+      onStatus: vi.fn()
+    });
+
+    client.start();
+    FakeWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "viewer-ready", roomId: "room001", peerId: "viewer-1" })
+    });
+    await flushPromises();
+    const peer = FakePeerConnection.instances[0];
+    peer.signalingState = "stable";
+
+    FakeWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "answer", roomId: "room001", peerId: "viewer-1", sdp: { type: "answer", sdp: "v=0" } })
+    });
+    await flushPromises();
+
+    expect(peer.remoteDescriptionCalls).toBe(0);
+  });
 });
 
 async function flushPromises() {
@@ -299,4 +365,20 @@ function fakeStream() {
   return {
     getTracks: () => [{ kind: "video" }, { kind: "audio" }]
   } as unknown as MediaStream;
+}
+
+function fakeRemoteVideo(input: {
+  readyState: number;
+  videoWidth: number;
+  videoHeight: number;
+  currentTime: number;
+}) {
+  return {
+    ...input,
+    paused: false,
+    ended: false,
+    srcObject: null,
+    play: vi.fn(async () => {}),
+    load: vi.fn()
+  };
 }

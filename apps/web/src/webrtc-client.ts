@@ -43,6 +43,10 @@ export class LiveClient {
   private reconnectTimer?: number;
   private statsTimer?: number;
   private heartbeatTimer?: number;
+  private mediaWatchTimer?: number;
+  private mediaFailureCount = 0;
+  private lastVideoTime = 0;
+  private lastViewerReannounceAt = 0;
   private forceRelay = false;
   private latencyMode: LatencyMode = "quality";
   private stopped = false;
@@ -75,6 +79,7 @@ export class LiveClient {
     this.statsTimer = window.setInterval(() => {
       void this.collectStats();
     }, 2000);
+    if (this.role === "viewer") this.startViewerMediaWatchdog();
   }
 
   stop() {
@@ -82,6 +87,7 @@ export class LiveClient {
     if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
     if (this.statsTimer) window.clearInterval(this.statsTimer);
     if (this.heartbeatTimer) window.clearInterval(this.heartbeatTimer);
+    if (this.mediaWatchTimer) window.clearInterval(this.mediaWatchTimer);
     this.ws?.close();
     for (const peer of this.peers.values()) peer.close();
     this.peers.clear();
@@ -105,7 +111,9 @@ export class LiveClient {
 
     socket.onmessage = (event) => {
       try {
-        void this.handleSignal(JSON.parse(String(event.data)));
+        void this.handleSignal(JSON.parse(String(event.data))).catch(() => {
+          this.setStatus({ connection: "信令消息错误" });
+        });
       } catch {
         this.setStatus({ connection: "信令消息错误" });
       }
@@ -143,7 +151,10 @@ export class LiveClient {
     }
 
     if (message.type === "answer" && message.peerId) {
-      await this.peers.get(message.peerId)?.setRemoteDescription(message.sdp);
+      const pc = this.peers.get(message.peerId);
+      if (!pc) return;
+      if (pc.signalingState !== "have-local-offer") return;
+      await pc.setRemoteDescription(message.sdp);
       return;
     }
 
@@ -186,6 +197,8 @@ export class LiveClient {
         if (this.remoteVideo) {
           this.remoteVideo.srcObject = event.streams[0];
           void this.remoteVideo.play().catch(() => {});
+          this.mediaFailureCount = 0;
+          this.lastVideoTime = 0;
         }
       };
     } else if (this.localStream) {
@@ -240,10 +253,67 @@ export class LiveClient {
       if (this.role === "broadcaster") {
         void this.offerToViewer(peerId);
       } else {
-        this.send({ type: "restart-request", roomId: this.roomId, targetPeerId: peerId, reason: "rebuild-timeout" });
+        this.reannounceViewer("rebuild-timeout");
       }
     }, 5000);
     this.recoveryTimers.set(peerId, timer);
+  }
+
+  private startViewerMediaWatchdog() {
+    if (this.mediaWatchTimer) window.clearInterval(this.mediaWatchTimer);
+    this.mediaWatchTimer = window.setInterval(() => {
+      this.checkViewerMedia();
+    }, 2500);
+  }
+
+  private checkViewerMedia() {
+    if (this.stopped || this.role !== "viewer" || !this.remoteVideo) return;
+    const video = this.remoteVideo;
+    const hasFrame = video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+      video.videoWidth > 0 &&
+      video.videoHeight > 0;
+    const timeAdvanced = video.currentTime > this.lastVideoTime + 0.05;
+
+    if (hasFrame && (timeAdvanced || video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA)) {
+      this.mediaFailureCount = 0;
+      this.lastVideoTime = video.currentTime;
+      return;
+    }
+
+    this.mediaFailureCount += 1;
+    this.lastVideoTime = video.currentTime;
+    if (this.mediaFailureCount < 3) return;
+    if (Date.now() - this.lastViewerReannounceAt < 15000) return;
+    this.reannounceViewer("media-watchdog");
+  }
+
+  private reannounceViewer(reason: string) {
+    if (this.role !== "viewer") return;
+    this.lastViewerReannounceAt = Date.now();
+    this.mediaFailureCount = 0;
+    this.lastVideoTime = 0;
+
+    for (const [peerId, pc] of this.peers.entries()) {
+      this.clearRecoveryTimer(peerId);
+      pc.close();
+    }
+    this.peers.clear();
+    this.peerHealth.clear();
+    this.bitrateSamples.clear();
+
+    if (this.remoteVideo) {
+      this.remoteVideo.srcObject = null;
+      this.remoteVideo.load();
+    }
+
+    this.setStatus({
+      connection: "重建接收端",
+      recovery: "正在重建接收端",
+      bitrateBps: 0,
+      fps: undefined,
+      resolution: undefined
+    });
+    this.send({ type: "viewer-ready", roomId: this.roomId, reason });
   }
 
   private async collectStats() {
