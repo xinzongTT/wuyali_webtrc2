@@ -342,7 +342,7 @@ export class LiveClient {
   }
 
   private shouldKeepHealthyViewerPeer(peerId: string | undefined) {
-    if (this.role !== "viewer" || !peerId || !this.peers.has(peerId)) return false;
+    if (this.role !== "viewer" || !peerId || this.peers.size === 0) return false;
     return this.hasHealthyViewerMedia();
   }
 
