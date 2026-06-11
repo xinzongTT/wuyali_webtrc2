@@ -208,7 +208,6 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   pointer-events: none;
 }
 .viewer-status[data-visible="false"] { display: none; }
-.viewer-status button { pointer-events: auto; }
 
 .admin-console {
   width: min(1440px, 100%);

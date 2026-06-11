@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Activity, AlertTriangle, Camera, Copy, Edit3, KeyRound, LogOut, Mic, Monitor, Play, Plus, Radio, Search, Settings, Shield, Square, Trash2, Users } from "lucide-react";
+import { Activity, AlertTriangle, Camera, Copy, Edit3, KeyRound, LogOut, Mic, Play, Plus, Radio, Search, Settings, Shield, Square, Trash2, Users } from "lucide-react";
 import {
   apiJson,
   deleteAdminUser,
@@ -312,7 +312,6 @@ function LivePage() {
 function ViewerPage({ roomId }: { roomId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [status, setStatus] = useState<ClientStatus>({ connection: "等待直播" });
-  const [fit, setFit] = useState<"contain" | "cover">("contain");
   const statsUploadRef = useRef(0);
   const params = new URLSearchParams(window.location.search);
   const showDebug = params.get("debug") === "1";
@@ -376,14 +375,13 @@ function ViewerPage({ roomId }: { roomId: string }) {
 
   return (
     <main className="viewer-page">
-      <video ref={videoRef} className={`portrait-video ${fit} ${mirrorCorrect ? "mirror-correct" : ""}`} playsInline autoPlay controls />
+      <video ref={videoRef} className={`portrait-video ${mirrorCorrect ? "mirror-correct" : ""}`} playsInline autoPlay />
       <div className="viewer-status" data-visible={showDebug}>
         <span className="badge inverse">{status.connection}</span>
         <span className="badge">{status.resolution || "等待分辨率"}</span>
         <span className="badge">{formatBitrate(status.bitrateBps)}</span>
         <span className="badge">{formatPathLabel({ path: status.path, protocol: status.protocol, fps: status.fps })}</span>
         <span className="badge">{formatHealthLabel(status)}</span>
-        <button className="ghost" onClick={() => setFit(fit === "contain" ? "cover" : "contain")}><Monitor size={14} />{fit}</button>
       </div>
     </main>
   );
