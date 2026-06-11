@@ -20,7 +20,7 @@ import {
   audioLevelToMeterPercent,
   buildAudioConstraints,
   buildVideoConstraints,
-  formatDeviceLabel,
+  formatDeviceLabels,
   formatBitrate,
   formatHealthLabel,
   formatPathLabel,
@@ -225,6 +225,9 @@ function LivePage() {
     );
   }
 
+  const cameraLabels = formatDeviceLabels(devices.cameras);
+  const microphoneLabels = formatDeviceLabels(devices.microphones);
+
   return (
     <Shell title={user.displayName} subtitle={`直播间 ${user.roomId}`} className={client ? "live-fullscreen-shell" : ""}>
       <section className="live-grid">
@@ -235,7 +238,7 @@ function LivePage() {
             <span className="badge">{trackInfo || "等待摄像头"}</span>
           </div>
           <div className="live-overlay top-right">
-            <span className="badge">{lowLatency ? "Low latency" : "Quality"}</span>
+            <span className="badge">{lowLatency ? "低延迟" : "高画质"}</span>
             <span className="badge">{formatBitrate(status.bitrateBps)}</span>
             <span className="badge">{formatPathLabel({ path: status.path, protocol: status.protocol, fps: status.fps })}</span>
             <span className="badge">{formatHealthLabel(status)}</span>
@@ -252,7 +255,7 @@ function LivePage() {
               <select value={cameraId} onChange={(e) => setCameraId(e.target.value)}>
                 <option value="">默认后置</option>
                 {devices.cameras.map((device, index) => (
-                  <option key={device.deviceId} value={device.deviceId}>{formatDeviceLabel(device, index)}</option>
+                  <option key={device.deviceId} value={device.deviceId}>{cameraLabels[index]}</option>
                 ))}
               </select>
             </label>
@@ -260,13 +263,13 @@ function LivePage() {
               <select value={microphoneId} onChange={(e) => setMicrophoneId(e.target.value)}>
                 <option value="">默认麦克风</option>
                 {devices.microphones.map((device, index) => (
-                  <option key={device.deviceId} value={device.deviceId}>{formatDeviceLabel(device, index)}</option>
+                  <option key={device.deviceId} value={device.deviceId}>{microphoneLabels[index]}</option>
                 ))}
               </select>
             </label>
           </div>
           <div className="button-row">
-            <label className="check"><input type="checkbox" checked={lowLatency} onChange={(e) => setLowLatency(e.target.checked)} />Low latency</label>
+            <label className="check"><input type="checkbox" checked={lowLatency} onChange={(e) => setLowLatency(e.target.checked)} />低延迟模式</label>
             <button className="secondary" onClick={openCamera}><Camera size={16} />打开摄像头</button>
             {!client
               ? <button className="primary" onClick={startLive} disabled={!stream}><Play size={16} />开启直播</button>

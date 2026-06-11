@@ -6,6 +6,7 @@ import {
   buildVideoConstraints,
   calculateBitrateBps,
   formatDeviceLabel,
+  formatDeviceLabels,
   formatBitrate,
   formatHealthLabel,
   formatPathLabel,
@@ -104,10 +105,21 @@ describe("formatting", () => {
   });
 
   it("formats camera and microphone labels in Chinese", () => {
-    expect(formatDeviceLabel({ label: "Back Camera", kind: "videoinput" } as MediaDeviceInfo, 0)).toBe("后置摄像头");
-    expect(formatDeviceLabel({ label: "FaceTime HD Camera", kind: "videoinput" } as MediaDeviceInfo, 1)).toBe("前置摄像头");
+    expect(formatDeviceLabel({ label: "Back Camera", kind: "videoinput" } as MediaDeviceInfo, 0)).toBe("后置摄像头 1");
+    expect(formatDeviceLabel({ label: "FaceTime HD Camera", kind: "videoinput" } as MediaDeviceInfo, 1)).toBe("前置摄像头 1");
     expect(formatDeviceLabel({ label: "", kind: "videoinput" } as MediaDeviceInfo, 2)).toBe("摄像头 3");
     expect(formatDeviceLabel({ label: "iPhone Microphone", kind: "audioinput" } as MediaDeviceInfo, 0)).toBe("麦克风 1");
+  });
+
+  it("keeps repeated iOS rear cameras distinguishable", () => {
+    const labels = formatDeviceLabels([
+      { label: "Back Camera", kind: "videoinput" },
+      { label: "Back Camera", kind: "videoinput" },
+      { label: "Back Camera", kind: "videoinput" },
+      { label: "Front Camera", kind: "videoinput" }
+    ] as MediaDeviceInfo[]);
+
+    expect(labels).toEqual(["后置摄像头 1", "后置摄像头 2", "后置摄像头 3", "前置摄像头 1"]);
   });
 
   it("presents landscape-encoded mobile video as portrait dimensions", () => {
