@@ -49,6 +49,10 @@ export async function loginUser(roomId: string, password: string) {
   });
 }
 
+export async function fetchMe(token: string) {
+  return apiJson<{ user: User }>("/api/me", { token });
+}
+
 export async function loginAdmin(username: string, password: string) {
   return apiJson<{ token: string }>("/api/admin/login", {
     method: "POST",

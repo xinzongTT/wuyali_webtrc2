@@ -5,6 +5,7 @@ import {
   apiJson,
   deleteAdminUser,
   fetchClientSettings,
+  fetchMe,
   getToken,
   loginAdmin,
   loginUser,
@@ -111,6 +112,7 @@ function LivePage() {
   const streamRef = useRef<MediaStream | null>(null);
   const clientRef = useRef<LiveClient | null>(null);
   const statsUploadRef = useRef(0);
+  const isLive = Boolean(client);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -119,6 +121,7 @@ function LivePage() {
       const result = await loginUser(roomId, password);
       setToken("userToken", result.token);
       setUser(result.user);
+      setRoomId(result.user.roomId);
       await refreshDevices();
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");
@@ -131,8 +134,7 @@ function LivePage() {
   }
 
   async function openCamera() {
-    clientRef.current?.stop();
-    clientRef.current = null;
+    if (clientRef.current) stopLive();
     meterCleanupRef.current?.();
     streamRef.current?.getTracks().forEach((track) => track.stop());
 
@@ -151,15 +153,16 @@ function LivePage() {
     setClient(null);
     setStatus({ connection: "未开启" });
     await refreshDevices();
+    return nextStream;
   }
 
-  async function startLive() {
-    if (!user || !stream) return;
+  async function startLive(nextStream = stream) {
+    if (!user || !nextStream) return;
     const current = new LiveClient({
       role: "broadcaster",
       roomId: user.roomId,
       token: getToken("userToken"),
-      localStream: stream,
+      localStream: nextStream,
       latencyMode: lowLatency ? "low-latency" : "quality",
       onStatus: setStatus,
       onStats: (nextStatus) => {
@@ -205,6 +208,16 @@ function LivePage() {
 
   useEffect(() => {
     void fetchClientSettings().then((next) => setLowLatency(next.lowLatencyDefault)).catch(() => {});
+    const token = getToken("userToken");
+    if (token) {
+      void fetchMe(token)
+        .then((next) => {
+          setUser(next.user);
+          setRoomId(next.user.roomId);
+          void refreshDevices();
+        })
+        .catch(() => localStorage.removeItem("userToken"));
+    }
     navigator.mediaDevices?.addEventListener?.("devicechange", refreshDevices);
     return () => {
       navigator.mediaDevices?.removeEventListener?.("devicechange", refreshDevices);
@@ -213,6 +226,11 @@ function LivePage() {
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || !streamRef.current || isLive) return;
+    void openCamera().catch((err) => setError(err instanceof Error ? err.message : "切换设备失败"));
+  }, [cameraId, microphoneId]);
 
   if (!user) {
     return (
@@ -231,7 +249,7 @@ function LivePage() {
   const microphoneLabels = formatDeviceLabels(devices.microphones);
 
   return (
-    <Shell title={user.displayName} subtitle={`直播间 ${user.roomId}`} className={client ? "live-fullscreen-shell" : ""}>
+    <Shell title={user.displayName} subtitle={`直播间 ${user.roomId}`} className={isLive ? "live-fullscreen-shell" : ""}>
       <section className="live-grid">
         <div className="preview-shell portrait-video">
           <video ref={videoRef} className={mirrorCorrect ? "mirror-correct" : ""} playsInline muted autoPlay />
@@ -249,6 +267,12 @@ function LivePage() {
             <Mic size={14} />
             <span><i style={{ width: `${audioLevel}%` }} /></span>
           </div>
+          {isLive && (
+            <div className="live-controls">
+              <button className="danger" onClick={stopLive}><Square size={16} />停止直播</button>
+              <label className="check floating-check"><input type="checkbox" checked={mirrorCorrect} onChange={(e) => setMirrorCorrect(e.target.checked)} />镜像修正</label>
+            </div>
+          )}
         </div>
 
         <aside className="panel">
@@ -274,8 +298,8 @@ function LivePage() {
             <label className="check"><input type="checkbox" checked={lowLatency} onChange={(e) => setLowLatency(e.target.checked)} />低延迟模式</label>
             <label className="check"><input type="checkbox" checked={mirrorCorrect} onChange={(e) => setMirrorCorrect(e.target.checked)} />镜像修正</label>
             <button className="secondary" onClick={openCamera}><Camera size={16} />打开摄像头</button>
-            {!client
-              ? <button className="primary" onClick={startLive} disabled={!stream}><Play size={16} />开启直播</button>
+            {!isLive
+              ? <button className="primary" onClick={() => void startLive()} disabled={!stream}><Play size={16} />开启直播</button>
               : <button className="danger" onClick={stopLive}><Square size={16} />停止直播</button>}
           </div>
           <CopyBox label="OBS 接收地址" value={`${window.location.origin}/view/${user.roomId}`} />
