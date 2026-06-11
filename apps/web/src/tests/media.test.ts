@@ -105,21 +105,41 @@ describe("formatting", () => {
   });
 
   it("formats camera and microphone labels in Chinese", () => {
-    expect(formatDeviceLabel({ label: "Back Camera", kind: "videoinput" } as MediaDeviceInfo, 0)).toBe("后置摄像头 1");
-    expect(formatDeviceLabel({ label: "FaceTime HD Camera", kind: "videoinput" } as MediaDeviceInfo, 1)).toBe("前置摄像头 1");
+    expect(formatDeviceLabel({ label: "Back Camera", kind: "videoinput" } as MediaDeviceInfo, 0)).toBe("后置相机");
+    expect(formatDeviceLabel({ label: "FaceTime HD Camera", kind: "videoinput" } as MediaDeviceInfo, 1)).toBe("前置相机");
     expect(formatDeviceLabel({ label: "", kind: "videoinput" } as MediaDeviceInfo, 2)).toBe("摄像头 3");
     expect(formatDeviceLabel({ label: "iPhone Microphone", kind: "audioinput" } as MediaDeviceInfo, 0)).toBe("麦克风 1");
   });
 
-  it("keeps repeated iOS rear cameras distinguishable", () => {
+  it("translates detailed iOS camera labels instead of hiding them", () => {
     const labels = formatDeviceLabels([
+      { label: "Front Camera", kind: "videoinput" },
+      { label: "Back Triple Camera", kind: "videoinput" },
+      { label: "Back Dual Wide Camera", kind: "videoinput" },
+      { label: "Back Ultra Wide Camera", kind: "videoinput" },
+      { label: "Back Dual Camera", kind: "videoinput" },
       { label: "Back Camera", kind: "videoinput" },
-      { label: "Back Camera", kind: "videoinput" },
-      { label: "Back Camera", kind: "videoinput" },
-      { label: "Front Camera", kind: "videoinput" }
+      { label: "Back Telephoto Camera", kind: "videoinput" }
     ] as MediaDeviceInfo[]);
 
-    expect(labels).toEqual(["后置摄像头 1", "后置摄像头 2", "后置摄像头 3", "前置摄像头 1"]);
+    expect(labels).toEqual([
+      "前置相机",
+      "后置三镜头",
+      "后置双广角镜头",
+      "后置超广角相机",
+      "后置双镜头",
+      "后置相机",
+      "后置长焦相机"
+    ]);
+  });
+
+  it("adds a suffix only when translated camera names are still duplicated", () => {
+    const labels = formatDeviceLabels([
+      { label: "Back Camera", kind: "videoinput" },
+      { label: "Back Camera", kind: "videoinput" }
+    ] as MediaDeviceInfo[]);
+
+    expect(labels).toEqual(["后置相机 1", "后置相机 2"]);
   });
 
   it("presents landscape-encoded mobile video as portrait dimensions", () => {

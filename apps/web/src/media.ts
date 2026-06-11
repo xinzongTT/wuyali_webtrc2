@@ -119,50 +119,41 @@ export function formatHealthLabel(input: {
 }
 
 export function formatDeviceLabel(device: Pick<MediaDeviceInfo, "kind" | "label">, index: number) {
+  return translateDeviceLabel(device, index);
+}
+
+export function formatDeviceLabels(devices: Pick<MediaDeviceInfo, "kind" | "label">[]) {
+  const baseLabels = devices.map((device, index) => translateDeviceLabel(device, index));
+  const totals = baseLabels.reduce<Record<string, number>>((next, label) => {
+    next[label] = (next[label] ?? 0) + 1;
+    return next;
+  }, {});
+  const seen: Record<string, number> = {};
+
+  return baseLabels.map((label) => {
+    if (totals[label] <= 1) return label;
+    seen[label] = (seen[label] ?? 0) + 1;
+    return `${label} ${seen[label]}`;
+  });
+}
+
+function translateDeviceLabel(device: Pick<MediaDeviceInfo, "kind" | "label">, index: number) {
   const raw = device.label.trim();
+  const lower = raw.toLowerCase();
   if (device.kind === "videoinput") {
-    const lower = raw.toLowerCase();
-    if (/(back|rear|environment|后|背)/.test(lower)) return "后置摄像头 1";
-    if (/(front|facetime|user|前|正)/.test(lower)) return "前置摄像头 1";
+    if (/(front|facetime|user|前|正)/.test(lower)) return "前置相机";
+    if (/(triple|三)/.test(lower)) return "后置三镜头";
+    if (/(dual wide|双广角)/.test(lower)) return "后置双广角镜头";
+    if (/(ultra wide|超广角)/.test(lower)) return "后置超广角相机";
+    if (/(telephoto|长焦)/.test(lower)) return "后置长焦相机";
+    if (/(dual|双)/.test(lower)) return "后置双镜头";
+    if (/(back|rear|environment|后|背)/.test(lower)) return "后置相机";
     return raw ? `摄像头 ${index + 1} · ${raw}` : `摄像头 ${index + 1}`;
   }
   if (device.kind === "audioinput") {
     return `麦克风 ${index + 1}`;
   }
   return raw || `设备 ${index + 1}`;
-}
-
-export function formatDeviceLabels(devices: Pick<MediaDeviceInfo, "kind" | "label">[]) {
-  const counts = {
-    front: 0,
-    back: 0,
-    camera: 0,
-    microphone: 0,
-    other: 0
-  };
-
-  return devices.map((device) => {
-    const raw = device.label.trim();
-    const lower = raw.toLowerCase();
-    if (device.kind === "videoinput") {
-      if (/(back|rear|environment|后|背)/.test(lower)) {
-        counts.back += 1;
-        return `后置摄像头 ${counts.back}`;
-      }
-      if (/(front|facetime|user|前|正)/.test(lower)) {
-        counts.front += 1;
-        return `前置摄像头 ${counts.front}`;
-      }
-      counts.camera += 1;
-      return raw ? `摄像头 ${counts.camera} · ${raw}` : `摄像头 ${counts.camera}`;
-    }
-    if (device.kind === "audioinput") {
-      counts.microphone += 1;
-      return `麦克风 ${counts.microphone}`;
-    }
-    counts.other += 1;
-    return raw || `设备 ${counts.other}`;
-  });
 }
 
 export function formatVideoDimensions(width?: number | null, height?: number | null, portrait = false) {
