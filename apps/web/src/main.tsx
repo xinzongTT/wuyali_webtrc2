@@ -20,9 +20,11 @@ import {
   audioLevelToMeterPercent,
   buildAudioConstraints,
   buildVideoConstraints,
+  formatDeviceLabel,
   formatBitrate,
   formatHealthLabel,
   formatPathLabel,
+  formatVideoDimensions,
   listMediaDevices,
   readTrackSettings
 } from "./media";
@@ -142,7 +144,7 @@ function LivePage() {
     if (videoRef.current) videoRef.current.srcObject = nextStream;
 
     const settings = readTrackSettings(nextStream);
-    setTrackInfo(`${settings.video?.width ?? "-"}x${settings.video?.height ?? "-"} · ${settings.video?.frameRate ?? "-"} fps`);
+    setTrackInfo(`${formatVideoDimensions(settings.video?.width, settings.video?.height, true) || "读取中"} · ${Math.round(settings.video?.frameRate ?? 30)} fps`);
     meterCleanupRef.current = startAudioMeter(nextStream, setAudioLevel);
     setClient(null);
     setStatus({ connection: "未开启" });
@@ -224,9 +226,9 @@ function LivePage() {
   }
 
   return (
-    <Shell title={user.displayName} subtitle={`直播间 ${user.roomId}`}>
+    <Shell title={user.displayName} subtitle={`直播间 ${user.roomId}`} className={client ? "live-fullscreen-shell" : ""}>
       <section className="live-grid">
-        <div className="preview-shell">
+        <div className="preview-shell portrait-video">
           <video ref={videoRef} playsInline muted autoPlay />
           <div className="live-overlay top-left">
             <span className="badge inverse">{status.connection}</span>
@@ -250,7 +252,7 @@ function LivePage() {
               <select value={cameraId} onChange={(e) => setCameraId(e.target.value)}>
                 <option value="">默认后置</option>
                 {devices.cameras.map((device, index) => (
-                  <option key={device.deviceId} value={device.deviceId}>{device.label || `摄像头 ${index + 1}`}</option>
+                  <option key={device.deviceId} value={device.deviceId}>{formatDeviceLabel(device, index)}</option>
                 ))}
               </select>
             </label>
@@ -258,7 +260,7 @@ function LivePage() {
               <select value={microphoneId} onChange={(e) => setMicrophoneId(e.target.value)}>
                 <option value="">默认麦克风</option>
                 {devices.microphones.map((device, index) => (
-                  <option key={device.deviceId} value={device.deviceId}>{device.label || `麦克风 ${index + 1}`}</option>
+                  <option key={device.deviceId} value={device.deviceId}>{formatDeviceLabel(device, index)}</option>
                 ))}
               </select>
             </label>
@@ -316,7 +318,7 @@ function ViewerPage({ roomId }: { roomId: string }) {
 
   return (
     <main className="viewer-page">
-      <video ref={videoRef} className={fit} playsInline autoPlay controls />
+      <video ref={videoRef} className={`portrait-video ${fit}`} playsInline autoPlay controls />
       <div className="viewer-status" data-visible={showDebug}>
         <span className="badge inverse">{status.connection}</span>
         <span className="badge">{status.resolution || "等待分辨率"}</span>
@@ -632,9 +634,9 @@ function AdminPage() {
   );
 }
 
-function Shell({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+function Shell({ title, subtitle, children, className = "" }: { title: string; subtitle: string; children: React.ReactNode; className?: string }) {
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${className}`.trim()}>
       <nav>
         <div><strong>{title}</strong><span>{subtitle}</span></div>
         <button className="ghost" onClick={() => { localStorage.clear(); window.location.href = "/"; }}><LogOut size={14} />退出</button>

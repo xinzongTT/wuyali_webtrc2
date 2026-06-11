@@ -18,8 +18,8 @@ export type VideoSenderParameters = Partial<RTCRtpSendParameters> & {
 
 export function buildVideoConstraints(deviceId?: string, _mode: LatencyMode = "quality"): MediaTrackConstraints {
   return {
-    width: { ideal: 1080 },
-    height: { ideal: 1920 },
+    width: { ideal: 1920 },
+    height: { ideal: 1080 },
     frameRate: { ideal: 30, max: 30 },
     ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: "environment" } })
   };
@@ -65,13 +65,12 @@ export function buildVideoSenderParameters(
     ...parameters,
     encodings: [{
       ...currentEncoding,
-      maxBitrate: mode === "low-latency" ? 4_000_000 : 6_000_000,
-      maxFramerate: 30
+      maxBitrate: mode === "low-latency" ? 6_000_000 : 8_000_000,
+      maxFramerate: 30,
+      scaleResolutionDownBy: 1
     }]
   };
-  if (mode === "low-latency") {
-    next.degradationPreference = "maintain-framerate";
-  }
+  next.degradationPreference = mode === "low-latency" ? "maintain-framerate" : "maintain-resolution";
   return next;
 }
 
@@ -117,6 +116,26 @@ export function formatHealthLabel(input: {
   if (input.jitterMs != null) parts.push(`jitter ${input.jitterMs} ms`);
   if (input.availableOutgoingKbps != null) parts.push(`avail ${input.availableOutgoingKbps} kbps`);
   return parts.length > 0 ? parts.join(" · ") : "诊断中";
+}
+
+export function formatDeviceLabel(device: Pick<MediaDeviceInfo, "kind" | "label">, index: number) {
+  const raw = device.label.trim();
+  if (device.kind === "videoinput") {
+    const lower = raw.toLowerCase();
+    if (/(back|rear|environment|后|背)/.test(lower)) return "后置摄像头";
+    if (/(front|facetime|user|前|正)/.test(lower)) return "前置摄像头";
+    return raw ? `摄像头 ${index + 1} · ${raw}` : `摄像头 ${index + 1}`;
+  }
+  if (device.kind === "audioinput") {
+    return `麦克风 ${index + 1}`;
+  }
+  return raw || `设备 ${index + 1}`;
+}
+
+export function formatVideoDimensions(width?: number | null, height?: number | null, portrait = false) {
+  if (!width || !height || width <= 0 || height <= 0) return "";
+  if (!portrait) return `${width}x${height}`;
+  return `${Math.min(width, height)}x${Math.max(width, height)}`;
 }
 
 export function isVideoStalled(input: {

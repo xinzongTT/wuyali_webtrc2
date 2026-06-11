@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LiveClient } from "../webrtc-client";
+import { LiveClient, lockVideoSdpBitrate } from "../webrtc-client";
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -66,6 +66,11 @@ class FakePeerConnection {
   addTrack(_track: MediaStreamTrack, _stream: MediaStream) {
     return { getParameters: () => ({}), setParameters: vi.fn() } as unknown as RTCRtpSender;
   }
+  addTransceiver(_track: MediaStreamTrack, _init: RTCRtpTransceiverInit) {
+    return {
+      sender: { getParameters: () => ({}), setParameters: vi.fn() }
+    } as unknown as RTCRtpTransceiver;
+  }
   async getStats() {
     return this.stats;
   }
@@ -95,6 +100,17 @@ afterEach(() => {
 });
 
 describe("LiveClient", () => {
+  it("locks offer SDP to a high enough bitrate for 1080p video", () => {
+    const sdp = [
+      "v=0",
+      "m=video 9 UDP/TLS/RTP/SAVPF 96",
+      "a=rtpmap:96 VP8/90000"
+    ].join("\r\n");
+
+    expect(lockVideoSdpBitrate(sdp)).toContain("b=TIAS:8000000");
+    expect(lockVideoSdpBitrate(sdp)).toContain("x-google-start-bitrate=8000");
+  });
+
   it("does not reconnect after the user stops the client", () => {
     const client = new LiveClient({
       role: "viewer",

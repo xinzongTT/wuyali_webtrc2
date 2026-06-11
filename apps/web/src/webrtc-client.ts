@@ -11,6 +11,9 @@ import {
 type Role = "broadcaster" | "viewer";
 type StatusCallback = (status: ClientStatus) => void;
 type RecoveryEventCallback = (event: RecoveryEvent) => void;
+const VIDEO_MAX_BITRATE_BPS = 8_000_000;
+const VIDEO_START_BITRATE_KBPS = 8_000;
+const VIDEO_MIN_BITRATE_KBPS = 6_000;
 
 export type ClientStatus = {
   connection: string;
@@ -236,11 +239,17 @@ export class LiveClient {
       };
     } else if (this.localStream) {
       for (const track of this.localStream.getTracks()) {
-        const sender = pc.addTrack(track, this.localStream);
         if (track.kind === "video") {
           track.contentHint = this.latencyMode === "low-latency" ? "motion" : "detail";
-          void tuneVideoSender(sender, this.latencyMode);
+          const transceiver = pc.addTransceiver(track, {
+            direction: "sendonly",
+            streams: [this.localStream],
+            sendEncodings: [buildVideoSenderParameters({}, this.latencyMode).encodings[0]]
+          });
+          void tuneVideoSender(transceiver.sender, this.latencyMode);
+          continue;
         }
+        pc.addTrack(track, this.localStream);
       }
     }
 
@@ -253,7 +262,8 @@ export class LiveClient {
   }
 
   private async sendOffer(peerId: string, pc: RTCPeerConnection, options?: RTCOfferOptions) {
-    const offer = await pc.createOffer(options);
+    const rawOffer = await pc.createOffer(options);
+    const offer = rawOffer.sdp ? { type: rawOffer.type, sdp: lockVideoSdpBitrate(rawOffer.sdp) } : rawOffer;
     await pc.setLocalDescription(offer);
     this.send({ type: "offer", roomId: this.roomId, targetPeerId: peerId, sdp: pc.localDescription });
   }
@@ -512,4 +522,45 @@ export class LiveClient {
 async function tuneVideoSender(sender: RTCRtpSender, latencyMode: LatencyMode) {
   const parameters = sender.getParameters();
   await sender.setParameters(buildVideoSenderParameters(parameters, latencyMode) as RTCRtpSendParameters);
+}
+
+export function lockVideoSdpBitrate(sdp: string) {
+  const lines = sdp.split("\r\n");
+  const videoPayloadTypes = new Set<string>();
+  let inVideo = false;
+  let hasVideoBandwidth = false;
+
+  for (const line of lines) {
+    if (line.startsWith("m=")) inVideo = line.startsWith("m=video ");
+    if (!inVideo) continue;
+    if (line.startsWith("b=AS:") || line.startsWith("b=TIAS:")) hasVideoBandwidth = true;
+    const rtpmap = line.match(/^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\//i);
+    if (rtpmap) videoPayloadTypes.add(rtpmap[1]);
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!lines[index].startsWith("m=video ") || hasVideoBandwidth) continue;
+    lines.splice(index + 1, 0, `b=AS:${VIDEO_START_BITRATE_KBPS}`, `b=TIAS:${VIDEO_MAX_BITRATE_BPS}`);
+    break;
+  }
+
+  const bitrateParams = [
+    `x-google-min-bitrate=${VIDEO_MIN_BITRATE_KBPS}`,
+    `x-google-start-bitrate=${VIDEO_START_BITRATE_KBPS}`,
+    `x-google-max-bitrate=${VIDEO_START_BITRATE_KBPS}`
+  ];
+
+  for (const payloadType of videoPayloadTypes) {
+    const existingIndex = lines.findIndex((line) => line.startsWith(`a=fmtp:${payloadType} `));
+    if (existingIndex >= 0) {
+      const missingParams = bitrateParams.filter((param) => !lines[existingIndex].includes(param.split("=")[0]));
+      if (missingParams.length > 0) lines[existingIndex] = `${lines[existingIndex]};${missingParams.join(";")}`;
+      continue;
+    }
+
+    const rtpmapIndex = lines.findIndex((line) => line.startsWith(`a=rtpmap:${payloadType} `));
+    if (rtpmapIndex >= 0) lines.splice(rtpmapIndex + 1, 0, `a=fmtp:${payloadType} ${bitrateParams.join(";")}`);
+  }
+
+  return lines.join("\r\n");
 }

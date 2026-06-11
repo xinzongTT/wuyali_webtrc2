@@ -5,18 +5,20 @@ import {
   buildVideoSenderParameters,
   buildVideoConstraints,
   calculateBitrateBps,
+  formatDeviceLabel,
   formatBitrate,
   formatHealthLabel,
   formatPathLabel,
+  formatVideoDimensions,
   isIosLike,
   isVideoStalled
 } from "../media";
 
 describe("media constraints", () => {
-  it("requests portrait 1080p 30fps from the rear camera by default", () => {
+  it("requests hardware-friendly 1080p 30fps from the rear camera by default", () => {
     expect(buildVideoConstraints()).toEqual({
-      width: { ideal: 1080 },
-      height: { ideal: 1920 },
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
       frameRate: { ideal: 30, max: 30 },
       facingMode: { ideal: "environment" }
     });
@@ -30,8 +32,8 @@ describe("media constraints", () => {
 
   it("keeps 1080p capture but disables extra audio processing in low latency mode", () => {
     expect(buildVideoConstraints(undefined, "low-latency")).toEqual({
-      width: { ideal: 1080 },
-      height: { ideal: 1920 },
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
       frameRate: { ideal: 30, max: 30 },
       facingMode: { ideal: "environment" }
     });
@@ -51,13 +53,14 @@ describe("media constraints", () => {
     });
   });
 
-  it("uses maintain-framerate sender settings for low latency mode", () => {
+  it("keeps enough bitrate for 1080p while tuning the degradation mode", () => {
     expect(buildVideoSenderParameters({}, "quality")).toMatchObject({
-      encodings: [{ maxBitrate: 6_000_000, maxFramerate: 30 }]
+      degradationPreference: "maintain-resolution",
+      encodings: [{ maxBitrate: 8_000_000, maxFramerate: 30, scaleResolutionDownBy: 1 }]
     });
     expect(buildVideoSenderParameters({}, "low-latency")).toMatchObject({
       degradationPreference: "maintain-framerate",
-      encodings: [{ maxBitrate: 4_000_000, maxFramerate: 30 }]
+      encodings: [{ maxBitrate: 6_000_000, maxFramerate: 30, scaleResolutionDownBy: 1 }]
     });
   });
 });
@@ -98,6 +101,19 @@ describe("formatting", () => {
     expect(audioLevelToMeterPercent(0)).toBe(0);
     expect(audioLevelToMeterPercent(0.02)).toBeGreaterThan(audioLevelToMeterPercent(0.002));
     expect(audioLevelToMeterPercent(1)).toBe(100);
+  });
+
+  it("formats camera and microphone labels in Chinese", () => {
+    expect(formatDeviceLabel({ label: "Back Camera", kind: "videoinput" } as MediaDeviceInfo, 0)).toBe("后置摄像头");
+    expect(formatDeviceLabel({ label: "FaceTime HD Camera", kind: "videoinput" } as MediaDeviceInfo, 1)).toBe("前置摄像头");
+    expect(formatDeviceLabel({ label: "", kind: "videoinput" } as MediaDeviceInfo, 2)).toBe("摄像头 3");
+    expect(formatDeviceLabel({ label: "iPhone Microphone", kind: "audioinput" } as MediaDeviceInfo, 0)).toBe("麦克风 1");
+  });
+
+  it("presents landscape-encoded mobile video as portrait dimensions", () => {
+    expect(formatVideoDimensions(1920, 1080, true)).toBe("1080x1920");
+    expect(formatVideoDimensions(1080, 1920, true)).toBe("1080x1920");
+    expect(formatVideoDimensions(1920, 1080, false)).toBe("1920x1080");
   });
 });
 

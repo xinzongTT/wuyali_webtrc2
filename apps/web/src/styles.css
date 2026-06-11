@@ -107,8 +107,11 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 
 .preview-shell {
   position: relative;
+  width: min(100%, calc((100vh - 96px) * 9 / 16));
   height: calc(100vh - 96px);
   min-height: 560px;
+  margin: 0 auto;
+  aspect-ratio: 9 / 16;
   border: 1px solid var(--ash);
   border-radius: 8px;
   overflow: hidden;
@@ -119,6 +122,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   height: 100%;
   object-fit: contain;
   background: #000;
+  transform: none;
 }
 
 .live-overlay {
@@ -159,6 +163,13 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   background: #000;
   overflow: hidden;
   position: relative;
+  display: grid;
+  place-items: center;
+}
+.viewer-page video {
+  width: min(100vw, calc(100vh * 9 / 16));
+  height: min(100vh, calc(100vw * 16 / 9));
+  aspect-ratio: 9 / 16;
 }
 .viewer-page video.cover { object-fit: cover; }
 .viewer-status {
@@ -488,9 +499,42 @@ h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 
 @media (max-width: 900px) {
   .live-grid, .admin-grid, .admin-layout, .admin-summary { grid-template-columns: 1fr; }
   .span-2, .span-3 { grid-column: auto; }
-  .preview-shell { height: 70vh; min-height: 460px; }
+  .preview-shell {
+    width: min(100%, calc(70vh * 9 / 16));
+    height: 70vh;
+    min-height: 460px;
+  }
   .button-row, .table-row, .event, .table-head, .admin-table .table-row, .two-fields, .outage-row, .admin-toolbar { grid-template-columns: 1fr; }
   .table-head, .outage-head { display: none; }
   .row-actions { justify-content: flex-start; }
   .auth-title h1 { font-size: 38px; }
+}
+
+.live-fullscreen-shell {
+  width: 100%;
+  min-height: 100dvh;
+  padding: 0;
+}
+
+.live-fullscreen-shell nav,
+.live-fullscreen-shell .panel {
+  display: none;
+}
+
+.live-fullscreen-shell .live-grid {
+  display: block;
+  min-height: 100dvh;
+}
+
+.live-fullscreen-shell .preview-shell {
+  width: 100vw;
+  height: 100dvh;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  aspect-ratio: auto;
+}
+
+.live-fullscreen-shell .audio-meter {
+  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 54px);
 }
