@@ -16,6 +16,7 @@ export default defineConfig({
   preview: {
     allowedHosts: [
       "zhibo.tkwuyali.com",
+      "kaibo.tkwuyali.com",
       "webtrc2.192-129-147-54.sslip.io"
     ]
   },
