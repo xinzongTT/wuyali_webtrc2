@@ -212,7 +212,7 @@ function LivePage() {
 
   if (!user) {
     return (
-      <AuthShell title="WebTRC 2.0" subtitle="输入直播间 ID 和密码，直接开启直播">
+      <AuthShell title="开播 2.0" subtitle="输入直播间 ID 和密码，直接开启直播">
         <form className="card auth-card" onSubmit={submit}>
           <label>直播间 ID<input value={roomId} onChange={(e) => setRoomId(e.target.value.toLowerCase())} placeholder="xiaoyu" /></label>
           <label>密码<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
@@ -648,7 +648,7 @@ function AuthShell({ title, subtitle, children }: { title: string; subtitle: str
   return (
     <main className="auth-shell">
       <div className="auth-title">
-        <span className="badge inverse">WebTRC 2.0</span>
+        <span className="badge inverse">开播 2.0</span>
         <h1>{title}</h1>
         <p>{subtitle}</p>
       </div>
