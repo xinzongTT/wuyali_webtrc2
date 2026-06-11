@@ -313,27 +313,35 @@ function ViewerPage({ roomId }: { roomId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [status, setStatus] = useState<ClientStatus>({ connection: "等待直播" });
   const [fit, setFit] = useState<"contain" | "cover">("contain");
-  const [muted, setMuted] = useState(true);
   const statsUploadRef = useRef(0);
   const params = new URLSearchParams(window.location.search);
   const showDebug = params.get("debug") === "1";
   const mirrorCorrect = shouldMirrorCorrect(params);
 
   useEffect(() => {
-    if (!videoRef.current) return;
-    videoRef.current.muted = muted;
-    videoRef.current.defaultMuted = muted;
-    void videoRef.current.play().catch(() => {});
-  }, [muted]);
+    const video = videoRef.current;
+    if (!video) return;
 
-  useEffect(() => {
-    if (!videoRef.current) return;
-    videoRef.current.muted = true;
-    videoRef.current.defaultMuted = true;
+    const play = () => {
+      video.muted = false;
+      video.defaultMuted = false;
+      video.volume = 1;
+      void video.play().catch(() => {});
+    };
+
+    video.muted = false;
+    video.defaultMuted = false;
+    video.volume = 1;
+    video.addEventListener("loadedmetadata", play);
+    video.addEventListener("canplay", play);
+    video.addEventListener("playing", play);
+    window.addEventListener("pageshow", play);
+    document.addEventListener("visibilitychange", play);
+
     const current = new LiveClient({
       role: "viewer",
       roomId,
-      remoteVideo: videoRef.current,
+      remoteVideo: video,
       onStatus: setStatus,
       onStats: (nextStatus) => {
         if (Date.now() - statsUploadRef.current < 10000) return;
@@ -355,17 +363,20 @@ function ViewerPage({ roomId }: { roomId: string }) {
       }
     });
     current.start();
-    return () => current.stop();
+    play();
+    return () => {
+      video.removeEventListener("loadedmetadata", play);
+      video.removeEventListener("canplay", play);
+      video.removeEventListener("playing", play);
+      window.removeEventListener("pageshow", play);
+      document.removeEventListener("visibilitychange", play);
+      current.stop();
+    };
   }, [roomId]);
 
   return (
     <main className="viewer-page">
-      <video ref={videoRef} className={`portrait-video ${fit} ${mirrorCorrect ? "mirror-correct" : ""}`} playsInline autoPlay muted={muted} controls />
-      {muted && (
-        <button className="viewer-audio-unlock" onClick={() => setMuted(false)}>
-          开启声音
-        </button>
-      )}
+      <video ref={videoRef} className={`portrait-video ${fit} ${mirrorCorrect ? "mirror-correct" : ""}`} playsInline autoPlay controls />
       <div className="viewer-status" data-visible={showDebug}>
         <span className="badge inverse">{status.connection}</span>
         <span className="badge">{status.resolution || "等待分辨率"}</span>

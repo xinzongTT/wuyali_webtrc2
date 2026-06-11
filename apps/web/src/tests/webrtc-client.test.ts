@@ -406,6 +406,39 @@ describe("LiveClient", () => {
     expect(remoteVideo.load).not.toHaveBeenCalled();
   });
 
+  it("unmutes and plays the viewer video when a remote stream arrives", async () => {
+    const remoteVideo = fakeRemoteVideo({
+      readyState: HTMLMediaElement.HAVE_ENOUGH_DATA,
+      videoWidth: 1080,
+      videoHeight: 1920,
+      currentTime: 1
+    });
+    remoteVideo.muted = true;
+    remoteVideo.defaultMuted = true;
+    remoteVideo.volume = 0.2;
+    const stream = {} as MediaStream;
+    const client = new LiveClient({
+      role: "viewer",
+      roomId: "room001",
+      remoteVideo: remoteVideo as unknown as HTMLVideoElement,
+      onStatus: vi.fn()
+    });
+
+    client.start();
+    FakeWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "offer", roomId: "room001", peerId: "broadcaster-1", sdp: { type: "offer", sdp: "v=0" } })
+    });
+    await flushPromises();
+    FakePeerConnection.instances[0].ontrack?.({ streams: [stream] });
+    await flushPromises();
+
+    expect(remoteVideo.srcObject).toBe(stream);
+    expect(remoteVideo.muted).toBe(false);
+    expect(remoteVideo.defaultMuted).toBe(false);
+    expect(remoteVideo.volume).toBe(1);
+    expect(remoteVideo.play).toHaveBeenCalled();
+  });
+
   it("keeps healthy viewer media when a signaling restart changes the broadcaster peer id", async () => {
     const remoteVideo = fakeRemoteVideo({
       readyState: HTMLMediaElement.HAVE_ENOUGH_DATA,
@@ -571,6 +604,9 @@ function fakeRemoteVideo(input: {
     ...input,
     paused: false,
     ended: false,
+    muted: false,
+    defaultMuted: false,
+    volume: 1,
     srcObject: null,
     play: vi.fn(async () => {}),
     load: vi.fn()

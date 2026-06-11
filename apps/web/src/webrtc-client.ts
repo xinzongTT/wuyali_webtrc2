@@ -219,6 +219,9 @@ export class LiveClient {
     if (this.role === "viewer") {
       pc.ontrack = (event) => {
         if (this.remoteVideo) {
+          this.remoteVideo.muted = false;
+          this.remoteVideo.defaultMuted = false;
+          this.remoteVideo.volume = 1;
           this.remoteVideo.srcObject = event.streams[0];
           void this.remoteVideo.play().catch(() => {});
           this.mediaFailureCount = 0;
