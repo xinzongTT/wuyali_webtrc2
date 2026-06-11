@@ -12,7 +12,8 @@ import {
   formatPathLabel,
   formatVideoDimensions,
   isIosLike,
-  isVideoStalled
+  isVideoStalled,
+  shouldMirrorCorrect
 } from "../media";
 
 describe("media constraints", () => {
@@ -146,6 +147,12 @@ describe("formatting", () => {
     expect(formatVideoDimensions(1920, 1080, true)).toBe("1080x1920");
     expect(formatVideoDimensions(1080, 1920, true)).toBe("1080x1920");
     expect(formatVideoDimensions(1920, 1080, false)).toBe("1920x1080");
+  });
+
+  it("enables mirror correction by default while allowing viewer opt-out", () => {
+    expect(shouldMirrorCorrect(new URLSearchParams(""))).toBe(true);
+    expect(shouldMirrorCorrect(new URLSearchParams("mirror=0"))).toBe(false);
+    expect(shouldMirrorCorrect(new URLSearchParams("mirror=false"))).toBe(false);
   });
 });
 

@@ -162,6 +162,11 @@ export function formatVideoDimensions(width?: number | null, height?: number | n
   return `${Math.min(width, height)}x${Math.max(width, height)}`;
 }
 
+export function shouldMirrorCorrect(params: URLSearchParams) {
+  const value = params.get("mirror")?.toLowerCase();
+  return value !== "0" && value !== "false" && value !== "off";
+}
+
 export function isVideoStalled(input: {
   previous: VideoHealthSample | null;
   current: VideoHealthSample;

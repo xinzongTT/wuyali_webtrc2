@@ -26,7 +26,8 @@ import {
   formatPathLabel,
   formatVideoDimensions,
   listMediaDevices,
-  readTrackSettings
+  readTrackSettings,
+  shouldMirrorCorrect
 } from "./media";
 import "./styles.css";
 
@@ -104,6 +105,7 @@ function LivePage() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [trackInfo, setTrackInfo] = useState("");
   const [lowLatency, setLowLatency] = useState(false);
+  const [mirrorCorrect, setMirrorCorrect] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const meterCleanupRef = useRef<() => void>();
   const streamRef = useRef<MediaStream | null>(null);
@@ -232,7 +234,7 @@ function LivePage() {
     <Shell title={user.displayName} subtitle={`直播间 ${user.roomId}`} className={client ? "live-fullscreen-shell" : ""}>
       <section className="live-grid">
         <div className="preview-shell portrait-video">
-          <video ref={videoRef} playsInline muted autoPlay />
+          <video ref={videoRef} className={mirrorCorrect ? "mirror-correct" : ""} playsInline muted autoPlay />
           <div className="live-overlay top-left">
             <span className="badge inverse">{status.connection}</span>
             <span className="badge">{trackInfo || "等待摄像头"}</span>
@@ -270,6 +272,7 @@ function LivePage() {
           </div>
           <div className="button-row">
             <label className="check"><input type="checkbox" checked={lowLatency} onChange={(e) => setLowLatency(e.target.checked)} />低延迟模式</label>
+            <label className="check"><input type="checkbox" checked={mirrorCorrect} onChange={(e) => setMirrorCorrect(e.target.checked)} />镜像修正</label>
             <button className="secondary" onClick={openCamera}><Camera size={16} />打开摄像头</button>
             {!client
               ? <button className="primary" onClick={startLive} disabled={!stream}><Play size={16} />开启直播</button>
@@ -287,7 +290,9 @@ function ViewerPage({ roomId }: { roomId: string }) {
   const [status, setStatus] = useState<ClientStatus>({ connection: "等待直播" });
   const [fit, setFit] = useState<"contain" | "cover">("contain");
   const statsUploadRef = useRef(0);
-  const showDebug = new URLSearchParams(window.location.search).get("debug") === "1";
+  const params = new URLSearchParams(window.location.search);
+  const showDebug = params.get("debug") === "1";
+  const mirrorCorrect = shouldMirrorCorrect(params);
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -321,7 +326,7 @@ function ViewerPage({ roomId }: { roomId: string }) {
 
   return (
     <main className="viewer-page">
-      <video ref={videoRef} className={`portrait-video ${fit}`} playsInline autoPlay controls />
+      <video ref={videoRef} className={`portrait-video ${fit} ${mirrorCorrect ? "mirror-correct" : ""}`} playsInline autoPlay controls />
       <div className="viewer-status" data-visible={showDebug}>
         <span className="badge inverse">{status.connection}</span>
         <span className="badge">{status.resolution || "等待分辨率"}</span>

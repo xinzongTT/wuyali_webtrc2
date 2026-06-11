@@ -124,6 +124,10 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   background: #000;
   transform: none;
 }
+.preview-shell video.mirror-correct,
+.viewer-page video.mirror-correct {
+  transform: scaleX(-1);
+}
 
 .live-overlay {
   position: absolute;
