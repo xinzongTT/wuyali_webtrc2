@@ -39,6 +39,8 @@ export type AppStore = {
   ensureAdmin(username: string, password: string): Promise<void>;
   verifyAdmin(username: string, password: string): Promise<boolean>;
   createUser(input: { roomId: string; password: string; displayName?: string }): Promise<UserRecord>;
+  updateUser(roomId: string, input: { displayName?: string; password?: string; enabled?: boolean }): Promise<UserRecord | null>;
+  deleteUser(roomId: string): Promise<boolean>;
   getUserByRoomId(roomId: string): Promise<UserRecord | null>;
   listUsers(): Promise<UserRecord[]>;
   verifyUser(roomId: string, password: string): Promise<UserRecord | null>;
@@ -133,6 +135,36 @@ function createStoreAdapter(read: () => DataShape, write: (next: DataShape) => P
       };
       await write({ ...data, users: [...data.users, user] });
       return user;
+    },
+
+    async updateUser(roomId, input) {
+      const data = read();
+      let updated: UserRecord | null = null;
+      const users = data.users.map((user) => {
+        if (user.roomId !== roomId) return user;
+        updated = {
+          ...user,
+          displayName: input.displayName?.trim() || user.displayName,
+          passwordHash: input.password ? hashPassword(input.password) : user.passwordHash,
+          enabled: typeof input.enabled === "boolean" ? input.enabled : user.enabled
+        };
+        return updated;
+      });
+      if (!updated) return null;
+      await write({ ...data, users });
+      return updated;
+    },
+
+    async deleteUser(roomId) {
+      const data = read();
+      const users = data.users.filter((user) => user.roomId !== roomId);
+      if (users.length === data.users.length) return false;
+      await write({
+        ...data,
+        users,
+        events: data.events.filter((event) => event.roomId !== roomId)
+      });
+      return true;
     },
 
     async getUserByRoomId(roomId) {

@@ -133,4 +133,60 @@ describe("app API", () => {
       detail: "DIRECT UDP 1080x1920"
     });
   });
+
+  it("lets an admin update display name, reset password, disable, enable, and delete a user", async () => {
+    const adminLogin = await request(app)
+      .post("/api/admin/login")
+      .send({ username: "admin", password: "admin123456" })
+      .expect(200);
+
+    await request(app)
+      .post("/api/admin/users")
+      .set("Authorization", `Bearer ${adminLogin.body.token}`)
+      .send({ roomId: "manage001", password: "oldpass123", displayName: "Manage Old" })
+      .expect(201);
+
+    await request(app)
+      .patch("/api/admin/users/manage001")
+      .set("Authorization", `Bearer ${adminLogin.body.token}`)
+      .send({ displayName: "Manage New", password: "newpass123", enabled: false })
+      .expect(200);
+
+    const listed = await request(app)
+      .get("/api/admin/users")
+      .set("Authorization", `Bearer ${adminLogin.body.token}`)
+      .expect(200);
+
+    expect(listed.body.users.find((user: { roomId: string }) => user.roomId === "manage001")).toMatchObject({
+      roomId: "manage001",
+      displayName: "Manage New",
+      enabled: false
+    });
+
+    await request(app)
+      .post("/api/login")
+      .send({ roomId: "manage001", password: "newpass123" })
+      .expect(401);
+
+    await request(app)
+      .patch("/api/admin/users/manage001")
+      .set("Authorization", `Bearer ${adminLogin.body.token}`)
+      .send({ enabled: true })
+      .expect(200);
+
+    await request(app)
+      .post("/api/login")
+      .send({ roomId: "manage001", password: "newpass123" })
+      .expect(200);
+
+    await request(app)
+      .delete("/api/admin/users/manage001")
+      .set("Authorization", `Bearer ${adminLogin.body.token}`)
+      .expect(204);
+
+    await request(app)
+      .post("/api/login")
+      .send({ roomId: "manage001", password: "newpass123" })
+      .expect(401);
+  });
 });

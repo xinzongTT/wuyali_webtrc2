@@ -1,17 +1,20 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Activity, AlertTriangle, Camera, LogOut, Mic, Monitor, Play, Plus, Radio, Settings, Shield, Square, Users } from "lucide-react";
+import { Activity, AlertTriangle, Camera, Copy, Edit3, KeyRound, LogOut, Mic, Monitor, Play, Plus, Radio, Search, Settings, Shield, Square, Trash2, Users } from "lucide-react";
 import {
   apiJson,
+  deleteAdminUser,
   fetchClientSettings,
   getToken,
   loginAdmin,
   loginUser,
   postRoomEvent,
   setToken,
+  updateAdminUser,
   type AdminUser,
   type User
 } from "./api";
+import { filterAdminUsers, type AdminUserStatusFilter } from "./admin-utils";
 import { LiveClient, type ClientStatus, type RecoveryEvent } from "./webrtc-client";
 import {
   audioLevelToMeterPercent,
@@ -87,7 +90,7 @@ function AdminLogin() {
 
 function LivePage() {
   const [user, setUser] = useState<User | null>(null);
-  const [roomId, setRoomId] = useState("");
+  const [roomId, setRoomId] = useState(() => new URLSearchParams(window.location.search).get("room")?.toLowerCase() ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -332,10 +335,16 @@ function AdminPage() {
   const [roomId, setRoomId] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<AdminUserStatusFilter>("all");
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [editPassword, setEditPassword] = useState("");
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [selectedRoom, setSelectedRoom] = useState("");
   const [events, setEvents] = useState<DiagnosticEvent[]>([]);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   async function load() {
     if (!token) {
@@ -353,6 +362,7 @@ function AdminPage() {
   async function createUser(event: React.FormEvent) {
     event.preventDefault();
     setError("");
+    setNotice("");
     try {
       await apiJson("/api/admin/users", {
         method: "POST",
@@ -362,6 +372,7 @@ function AdminPage() {
       setRoomId("");
       setPassword("");
       setDisplayName("");
+      setNotice("用户已创建");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "创建失败");
@@ -381,7 +392,62 @@ function AdminPage() {
       token,
       body: JSON.stringify(settings)
     });
+    setNotice("设置已保存");
     await load();
+  }
+
+  function beginEdit(user: AdminUser) {
+    setEditingUser(user);
+    setEditDisplayName(user.displayName);
+    setEditPassword("");
+    setError("");
+    setNotice("");
+  }
+
+  async function saveUserEdit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!editingUser) return;
+    setError("");
+    setNotice("");
+    try {
+      await updateAdminUser({
+        roomId: editingUser.roomId,
+        token,
+        displayName: editDisplayName,
+        password: editPassword || undefined
+      });
+      setEditingUser(null);
+      setNotice("用户已更新");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新失败");
+    }
+  }
+
+  async function toggleUser(user: AdminUser) {
+    setError("");
+    setNotice("");
+    await updateAdminUser({ roomId: user.roomId, token, enabled: !user.enabled });
+    setNotice(user.enabled ? "用户已禁用" : "用户已启用");
+    await load();
+  }
+
+  async function removeUser(user: AdminUser) {
+    if (!window.confirm(`删除用户 ${user.roomId}？此操作会同时清理该房间诊断记录。`)) return;
+    setError("");
+    setNotice("");
+    await deleteAdminUser(user.roomId, token);
+    if (selectedRoom === user.roomId) {
+      setSelectedRoom("");
+      setEvents([]);
+    }
+    setNotice("用户已删除");
+    await load();
+  }
+
+  async function copyText(value: string, label: string) {
+    await navigator.clipboard.writeText(value);
+    setNotice(`${label}已复制`);
   }
 
   useEffect(() => { void load(); }, []);
@@ -390,6 +456,7 @@ function AdminPage() {
   const totalViewers = users.reduce((sum, user) => sum + user.presence.viewers, 0);
   const turnReady = Boolean(settings?.turnUrls.trim());
   const outageEvents = events.filter(isOutageEvent);
+  const visibleUsers = filterAdminUsers(users, query, statusFilter);
 
   return (
     <Shell title="管理员后台" subtitle="账号、直播状态、TURN 和诊断">
@@ -424,6 +491,7 @@ function AdminPage() {
               <label>显示名称<input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="可选" /></label>
               <label>密码<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
               {error && <p className="error">{error}</p>}
+              {notice && <p className="success">{notice}</p>}
               <button className="primary" type="submit"><Plus size={16} />创建用户</button>
             </form>
 
@@ -454,7 +522,16 @@ function AdminPage() {
             <div className="card admin-card">
               <div className="section-title horizontal">
                 <h2><Users size={17} />用户列表</h2>
-                <span>点击用户查看最近诊断</span>
+                <span>{visibleUsers.length} / {users.length}</span>
+              </div>
+              <div className="admin-toolbar">
+                <label className="search-field"><Search size={14} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索名称或房间 ID" /></label>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as AdminUserStatusFilter)}>
+                  <option value="all">全部用户</option>
+                  <option value="live">直播中</option>
+                  <option value="offline">离线</option>
+                  <option value="disabled">已禁用</option>
+                </select>
               </div>
               <div className="table admin-table">
                 <div className="table-head">
@@ -462,19 +539,29 @@ function AdminPage() {
                   <span>房间 ID</span>
                   <span>状态</span>
                   <span>接收端</span>
+                  <span>创建时间</span>
+                  <span>操作</span>
                 </div>
-                {users.map((user) => (
-                  <button
+                {visibleUsers.map((user) => (
+                  <div
                     key={user.id}
                     className={`table-row ${selectedRoom === user.roomId ? "selected" : ""}`}
-                    onClick={() => openDiagnostics(user.roomId)}
                   >
-                    <span>{user.displayName}</span>
+                    <button className="link-cell" onClick={() => openDiagnostics(user.roomId)}>{user.displayName}</button>
                     <span className="mono">{user.roomId}</span>
-                    <span className={`badge ${user.presence.status === "live" ? "inverse" : ""}`}>{statusLabel(user.presence.status)}</span>
+                    <span className={`badge ${user.presence.status === "live" ? "inverse" : ""}`}>{user.enabled ? statusLabel(user.presence.status) : "已禁用"}</span>
                     <span>{user.presence.viewers}</span>
-                  </button>
+                    <span className="muted">{formatDate(user.createdAt)}</span>
+                    <span className="row-actions">
+                      <button title="复制接收地址" onClick={() => copyText(`${window.location.origin}/view/${user.roomId}`, "接收地址")}><Copy size={14} />接收</button>
+                      <button title="复制开播地址" onClick={() => copyText(`${window.location.origin}/?room=${user.roomId}`, "开播地址")}><Copy size={14} />开播</button>
+                      <button title="编辑用户" onClick={() => beginEdit(user)}><Edit3 size={14} />编辑</button>
+                      <button title={user.enabled ? "禁用用户" : "启用用户"} onClick={() => toggleUser(user)}><KeyRound size={14} />{user.enabled ? "禁用" : "启用"}</button>
+                      <button className="danger subtle" title="删除用户" onClick={() => removeUser(user)}><Trash2 size={14} />删除</button>
+                    </span>
+                  </div>
                 ))}
+                {visibleUsers.length === 0 && <p className="muted empty-state">没有匹配的用户。</p>}
               </div>
             </div>
 
@@ -524,6 +611,22 @@ function AdminPage() {
             </div>
           </main>
         </section>
+        {editingUser && (
+          <div className="modal-backdrop" role="presentation">
+            <form className="modal-card" onSubmit={saveUserEdit}>
+              <div className="section-title horizontal">
+                <h2><Edit3 size={17} />编辑用户</h2>
+                <span className="mono">{editingUser.roomId}</span>
+              </div>
+              <label>显示名称<input value={editDisplayName} onChange={(e) => setEditDisplayName(e.target.value)} /></label>
+              <label>重置密码<input type="password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="留空则不修改" /></label>
+              <div className="modal-actions">
+                <button type="button" className="secondary" onClick={() => setEditingUser(null)}>取消</button>
+                <button type="submit" className="primary">保存</button>
+              </div>
+            </form>
+          </div>
+        )}
       </section>
     </Shell>
   );
@@ -562,6 +665,10 @@ function statusLabel(status: string) {
   if (status === "live") return "直播中";
   if (status === "recovering") return "恢复中";
   return "离线";
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString();
 }
 
 function buildStatsDetail(status: ClientStatus) {

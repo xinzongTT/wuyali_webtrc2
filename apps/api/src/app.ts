@@ -123,6 +123,27 @@ export function createApp(options: {
     }
   });
 
+  app.patch("/api/admin/users/:roomId", requireAuth("admin"), async (req, res) => {
+    const roomId = roomIdSchema.safeParse(req.params.roomId);
+    const parsed = z.object({
+      displayName: z.string().max(64).optional(),
+      password: z.string().min(6).optional(),
+      enabled: z.boolean().optional()
+    }).safeParse(req.body);
+    if (!roomId.success || !parsed.success) return res.status(400).json({ error: "invalid_user_update" });
+    const user = await options.store.updateUser(roomId.data, parsed.data);
+    if (!user) return res.status(404).json({ error: "user_not_found" });
+    res.json({ user: publicUser(user) });
+  });
+
+  app.delete("/api/admin/users/:roomId", requireAuth("admin"), async (req, res) => {
+    const roomId = roomIdSchema.safeParse(req.params.roomId);
+    if (!roomId.success) return res.status(400).json({ error: "invalid_user" });
+    const deleted = await options.store.deleteUser(roomId.data);
+    if (!deleted) return res.status(404).json({ error: "user_not_found" });
+    res.status(204).end();
+  });
+
   app.get("/api/admin/rooms/:roomId/diagnostics", requireAuth("admin"), async (req, res) => {
     const events = await options.store.recentRoomEvents(req.params.roomId, 50);
     res.json({

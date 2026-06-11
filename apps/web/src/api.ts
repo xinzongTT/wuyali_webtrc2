@@ -56,6 +56,31 @@ export async function loginAdmin(username: string, password: string) {
   });
 }
 
+export async function updateAdminUser(input: {
+  roomId: string;
+  token: string;
+  displayName?: string;
+  password?: string;
+  enabled?: boolean;
+}) {
+  return apiJson<{ user: User }>(`/api/admin/users/${encodeURIComponent(input.roomId)}`, {
+    method: "PATCH",
+    token: input.token,
+    body: JSON.stringify({
+      displayName: input.displayName,
+      password: input.password,
+      enabled: input.enabled
+    })
+  });
+}
+
+export async function deleteAdminUser(roomId: string, token: string) {
+  return apiJson<void>(`/api/admin/users/${encodeURIComponent(roomId)}`, {
+    method: "DELETE",
+    token
+  });
+}
+
 export async function fetchRtcConfig(forceRelay = false) {
   return apiJson<RtcConfig>(`/api/rtc-config${forceRelay ? "?relay=1" : ""}`);
 }
