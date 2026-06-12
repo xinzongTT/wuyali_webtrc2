@@ -14,6 +14,11 @@ type RecoveryEventCallback = (event: RecoveryEvent) => void;
 const VIDEO_MAX_BITRATE_BPS = 8_000_000;
 const VIDEO_START_BITRATE_KBPS = 8_000;
 const VIDEO_MIN_BITRATE_KBPS = 6_000;
+const PEER_REBUILD_TIMEOUT_MS = 1500;
+const VIEWER_MEDIA_WATCH_INTERVAL_MS = 1000;
+const VIEWER_MEDIA_FAILURES_BEFORE_REBUILD = 2;
+const VIEWER_REANNOUNCE_COOLDOWN_MS = 5000;
+const STALLED_VIDEO_THRESHOLD_MS = 1500;
 
 export type ClientStatus = {
   connection: string;
@@ -225,7 +230,7 @@ export class LiveClient {
           this.remoteVideo.srcObject = event.streams[0];
           void this.remoteVideo.play().catch(() => {});
           this.mediaFailureCount = 0;
-          this.lastVideoTime = 0;
+          this.lastVideoTime = this.remoteVideo.currentTime;
           if (this.lastViewerMediaLostAt > 0) {
             this.emitRecoveryEvent({
               type: "viewer_media_recovered",
@@ -322,7 +327,7 @@ export class LiveClient {
       } else {
         this.reannounceViewer("rebuild-timeout");
       }
-    }, 5000);
+    }, PEER_REBUILD_TIMEOUT_MS);
     this.recoveryTimers.set(peerId, timer);
   }
 
@@ -330,7 +335,7 @@ export class LiveClient {
     if (this.mediaWatchTimer) window.clearInterval(this.mediaWatchTimer);
     this.mediaWatchTimer = window.setInterval(() => {
       this.checkViewerMedia();
-    }, 2500);
+    }, VIEWER_MEDIA_WATCH_INTERVAL_MS);
   }
 
   private checkViewerMedia() {
@@ -349,8 +354,8 @@ export class LiveClient {
 
     this.mediaFailureCount += 1;
     this.lastVideoTime = video.currentTime;
-    if (this.mediaFailureCount < 3) return;
-    if (Date.now() - this.lastViewerReannounceAt < 15000) return;
+    if (this.mediaFailureCount < VIEWER_MEDIA_FAILURES_BEFORE_REBUILD) return;
+    if (this.lastViewerReannounceAt > 0 && Date.now() - this.lastViewerReannounceAt < VIEWER_REANNOUNCE_COOLDOWN_MS) return;
     this.reannounceViewer("media-watchdog");
   }
 
@@ -463,7 +468,7 @@ export class LiveClient {
       if (this.role === "viewer" && isVideoStalled({
         previous: this.peerHealth.get(peerId) ?? null,
         current,
-        thresholdMs: 5000
+        thresholdMs: STALLED_VIDEO_THRESHOLD_MS
       })) {
         this.recoverPeer(peerId, pc);
       }

@@ -370,6 +370,67 @@ describe("LiveClient", () => {
     });
   });
 
+  it("re-announces a stalled viewer within two seconds", async () => {
+    const remoteVideo = fakeRemoteVideo({
+      readyState: HTMLMediaElement.HAVE_CURRENT_DATA,
+      videoWidth: 1080,
+      videoHeight: 1920,
+      currentTime: 20
+    });
+    const client = new LiveClient({
+      role: "viewer",
+      roomId: "room001",
+      remoteVideo: remoteVideo as unknown as HTMLVideoElement,
+      onStatus: vi.fn()
+    });
+
+    client.start();
+    FakeWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "offer", roomId: "room001", peerId: "broadcaster-1", sdp: { type: "offer", sdp: "v=0" } })
+    });
+    await flushPromises();
+    FakePeerConnection.instances[0].ontrack?.({ streams: [{} as MediaStream] });
+    await flushPromises();
+
+    await vi.advanceTimersByTimeAsync(2000);
+    await flushPromises();
+
+    expect(remoteVideo.load).toHaveBeenCalled();
+    expect(FakeWebSocket.instances[0].sent.some((message) => message.includes('"type":"viewer-ready"'))).toBe(true);
+  });
+
+  it("rebuilds an unhealthy viewer peer within 1.5 seconds", async () => {
+    const remoteVideo = fakeRemoteVideo({
+      readyState: HTMLMediaElement.HAVE_ENOUGH_DATA,
+      videoWidth: 1080,
+      videoHeight: 1920,
+      currentTime: 20
+    });
+    const client = new LiveClient({
+      role: "viewer",
+      roomId: "room001",
+      remoteVideo: remoteVideo as unknown as HTMLVideoElement,
+      onStatus: vi.fn()
+    });
+
+    client.start();
+    FakeWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "offer", roomId: "room001", peerId: "broadcaster-1", sdp: { type: "offer", sdp: "v=0" } })
+    });
+    await flushPromises();
+    const firstPeer = FakePeerConnection.instances[0];
+    firstPeer.ontrack?.({ streams: [{} as MediaStream] });
+    firstPeer.connectionState = "disconnected";
+    firstPeer.onconnectionstatechange?.();
+
+    await vi.advanceTimersByTimeAsync(1500);
+    await flushPromises();
+
+    expect(firstPeer.closed).toBe(true);
+    expect(remoteVideo.load).toHaveBeenCalled();
+    expect(FakeWebSocket.instances[0].sent.some((message) => message.includes('"type":"viewer-ready"'))).toBe(true);
+  });
+
   it("keeps a healthy viewer peer when signaling resends an offer for the same broadcaster", async () => {
     const remoteVideo = fakeRemoteVideo({
       readyState: HTMLMediaElement.HAVE_ENOUGH_DATA,
